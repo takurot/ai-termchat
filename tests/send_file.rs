@@ -1,12 +1,39 @@
-#![cfg(feature = "ui-test")]
+use std::time::{Duration, Instant};
 
-use triadchat::application::{Application, Signal};
+use triadchat::application::Application;
 use triadchat::config::Config;
 
-use message_io::node::{NodeHandler};
+fn test_config(user_name: &str, discovery_port: u16) -> Config {
+    Config {
+        user_name: user_name.to_string(),
+        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
+        terminal_bell: false,
+        ..Config::default()
+    }
+}
+
+fn pump_until<F>(
+    left: &mut Application<'_>,
+    right: &mut Application<'_>,
+    timeout: Duration,
+    mut predicate: F,
+) where
+    F: FnMut(&Application<'_>, &Application<'_>) -> bool,
+{
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if predicate(left, right) {
+            return;
+        }
+
+        let _ = left.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = right.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+
+    panic!("timed out waiting for send_file integration condition");
+}
 
 #[test]
-#[ignore = "Phase 1 file transfer flow is out of Phase 0 scope"]
 fn send_file() {
     let triadchat_dir = std::env::temp_dir().join("triadchat");
     let test_path = triadchat_dir.join("test");
@@ -16,60 +43,31 @@ fn send_file() {
     let data = vec![rand::random(); 10usize.pow(6)];
     std::fs::write(&test_path, &data).unwrap();
 
-    // spawn users
-    let config1: Config = Config { user_name: 1.to_string(), ..Config::default() };
-    let config2: Config = Config { user_name: 2.to_string(), ..Config::default() };
-    let (mut s1, t1) = test_user(config1);
-    // wait a bit or triadchat will create two communication channels at the same time
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let (s2, t2) = test_user(config2);
+    let discovery_port = 39000 + (rand::random::<u16>() % 1000);
+    let config1 = test_config("1", discovery_port);
+    let config2 = test_config("2", discovery_port + 1);
+    let mut sender = Application::new_for_test(&config1).unwrap();
+    let mut receiver = Application::new_for_test(&config2).unwrap();
 
-    // wait for users to connect
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    // send file
-    input(&mut s1, &format!("/send {}", test_path.display()));
-    // wait for the file to finish sending
+    sender.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    receiver.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    sender.connect_peer_for_test(receiver.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(3), |left, right| {
+        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    });
+
+    sender.handle_input_line_for_test(&format!("/send {}", test_path.display())).unwrap();
+
     let received_path = std::env::temp_dir().join("triadchat").join("1").join("test");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !received_path.exists() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
+    let expected_len = data.len() as u64;
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(20), |_, _| {
+        std::fs::metadata(&received_path).map(|meta| meta.len() == expected_len).unwrap_or(false)
+    });
 
-    // finish
-    s1.signals().send(Signal::Close(None));
-    s2.signals().send(Signal::Close(None));
-    t1.join().unwrap();
-    t2.join().unwrap();
-
-    // assert eq
     let send_data = std::fs::read(received_path).unwrap();
     assert_eq!(data.len(), send_data.len());
     assert_eq!(data, send_data);
-}
-
-fn test_user(config: Config) -> (NodeHandler<Signal>, std::thread::JoinHandle<()>) {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let t = std::thread::spawn(move || {
-        let mut app = Application::new_for_test(&config).unwrap();
-        tx.send(app.node_handler()).unwrap();
-        app.run(std::io::sink()).unwrap();
-    });
-    (rx.recv().unwrap(), t)
-}
-
-fn input(handler: &mut NodeHandler<Signal>, s: &str) {
-    for c in s.chars() {
-        handler.signals().send(Signal::Terminal(crossterm::event::Event::Key(
-            crossterm::event::KeyEvent {
-                code: crossterm::event::KeyCode::Char(c),
-                modifiers: crossterm::event::KeyModifiers::NONE,
-            },
-        )));
-    }
-    handler.signals().send(Signal::Terminal(crossterm::event::Event::Key(
-        crossterm::event::KeyEvent {
-            code: crossterm::event::KeyCode::Enter,
-            modifiers: crossterm::event::KeyModifiers::NONE,
-        },
-    )));
 }

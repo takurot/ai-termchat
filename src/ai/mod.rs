@@ -55,4 +55,8 @@ impl AiMediator {
         let raw = self.sidecar.ask(&prompt).await?;
         Ok(parse_ai_payload(&raw))
     }
+
+    pub async fn run_skill(&self, skill_name: &str, args: &[String]) -> Result<String> {
+        self.sidecar.run_skill(skill_name, args).await
+    }
 }

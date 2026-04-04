@@ -1,6 +1,9 @@
 use rgb::RGB8;
 use serde::{Deserialize, Serialize};
 
+pub type RoomId = String;
+pub type MemberId = String;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoItem {
     pub text: String,
@@ -57,13 +60,16 @@ pub struct AiPayload {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SkillResultPayload {
-    pub name: String,
-    pub output: String,
+    pub skill_name: String,
+    pub summary: String,
+    pub success: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub user_name: String,
+    pub server_port: u16,
+    pub node_version: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,7 +88,7 @@ pub enum NetMessage {
     Stream(Option<(Vec<RGB8>, usize, usize)>),
     AiMessage(AiPayload),
     PeerInfo(PeerInfo),
-    RoomCreate(String, Vec<String>),
-    RoomJoin(String),
+    RoomCreate(RoomId, Vec<MemberId>),
+    RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
 }

@@ -1,4 +1,5 @@
 use std::io::ErrorKind;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -13,16 +14,21 @@ use crate::action::{Action, Processing};
 use crate::ai::trigger::{should_intervene, TriggerConfig};
 use crate::ai::{AiMediator, AiTask};
 use crate::commands::ai_cmd::AiCommand;
+use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
+use crate::commands::skill_cmd::{CancelCommand, RunCommand, SkillCommand, SkillsCommand};
 use crate::commands::summary_cmd::SummaryCommand;
 use crate::commands::{AppCommand, CommandManager, ParsedCommand, SummaryCommandKind};
 use crate::config::Config;
 use crate::encoder::{self, Encoder};
-use crate::message::{AiIntent, AiPayload, Chunk, NetMessage};
+use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
+use crate::room::transcript::TranscriptEntry;
 use crate::renderer::Renderer;
 use crate::state::{
     AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State, Window,
 };
+use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
+use crate::skill::registry::{InvokeMode, RiskLevel};
 use crate::terminal_events::TerminalEventCollector;
 use crate::util::{Error, Reportable, Result};
 
@@ -31,7 +37,7 @@ pub enum Signal {
     Action(Box<dyn Action>),
     AiResponse(AiPayload),
     AiFailed(String),
-    SkillDone(String),
+    SkillDone(SkillResultPayload),
     Close(Option<Error>),
 }
 
@@ -47,18 +53,36 @@ pub struct Application<'a> {
     runtime: tokio::runtime::Runtime,
     ai_mediator: Option<Arc<AiMediator>>,
     test_mode: bool,
+    local_server_port: Option<u16>,
 }
 
 impl<'a> Application<'a> {
     pub fn new(config: &'a Config) -> Result<Self> {
-        Self::new_inner(config, true)
+        let workspace = std::env::current_dir()?;
+        Self::new_inner(config, true, &workspace)
+    }
+
+    pub fn new_in_workspace(config: &'a Config, workspace: &std::path::Path) -> Result<Self> {
+        Self::new_inner(config, true, workspace)
     }
 
     pub fn new_for_test(config: &'a Config) -> Result<Self> {
-        Self::new_inner(config, false)
+        let workspace = std::env::current_dir()?;
+        Self::new_inner(config, false, &workspace)
     }
 
-    fn new_inner(config: &'a Config, collect_terminal_events: bool) -> Result<Self> {
+    pub fn new_for_test_in_workspace(
+        config: &'a Config,
+        workspace: &std::path::Path,
+    ) -> Result<Self> {
+        Self::new_inner(config, false, workspace)
+    }
+
+    fn new_inner(
+        config: &'a Config,
+        collect_terminal_events: bool,
+        workspace: &std::path::Path,
+    ) -> Result<Self> {
         let (handler, listener) = node::split();
         let _terminal_events = if collect_terminal_events {
             let terminal_handler = handler.clone();
@@ -74,6 +98,12 @@ impl<'a> Application<'a> {
         let commands = CommandManager::default()
             .with(SendFileCommand)
             .with(AiCommand)
+            .with(RoomCommand)
+            .with(PeersCommand)
+            .with(SkillsCommand)
+            .with(SkillCommand)
+            .with(RunCommand)
+            .with(CancelCommand)
             .with(SummaryCommand::summary())
             .with(SummaryCommand::todos())
             .with(SummaryCommand::decisions())
@@ -81,11 +111,14 @@ impl<'a> Application<'a> {
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut state = State::default();
+        state.set_local_user_name(config.user_name.clone());
         state.ui_language = config.language.ui.clone();
+        state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
+        state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
+        state.set_transcript_base_dir(dirs_next::data_dir());
 
-        let workspace = std::env::current_dir()?;
         let ai_mediator = if config.ai.enabled {
-            match AiMediator::new(&workspace, &config.ai, &config.language) {
+            match AiMediator::new(workspace, &config.ai, &config.language) {
                 Ok(mediator) => Some(Arc::new(mediator)),
                 Err(error) => {
                     state.ai_state = AiState::Disabled;
@@ -110,6 +143,7 @@ impl<'a> Application<'a> {
             runtime,
             ai_mediator,
             test_mode: !collect_terminal_events,
+            local_server_port: None,
         })
     }
 
@@ -120,14 +154,7 @@ impl<'a> Application<'a> {
             renderer.render(&self.state, self.config)?;
         }
 
-        let server_addr = ("0.0.0.0", self.config.tcp_server_port);
-        let (_, server_addr) = self.node.network().listen(Transport::FramedTcp, server_addr)?;
-        self.node.network().listen(Transport::Udp, self.config.discovery_addr)?;
-
-        let (discovery_endpoint, _) =
-            self.node.network().connect_sync(Transport::Udp, self.config.discovery_addr)?;
-        let message = NetMessage::HelloLan(self.config.user_name.clone(), server_addr.port());
-        self.node.network().send(discovery_endpoint, self.encoder.encode(message));
+        self.start_network()?;
 
         loop {
             if !self.process_next_event()? {
@@ -139,12 +166,44 @@ impl<'a> Application<'a> {
         }
     }
 
+    fn start_network(&mut self) -> Result<()> {
+        let server_addr = ("0.0.0.0", self.config.tcp_server_port);
+        let (_, server_addr) = self.node.network().listen(Transport::FramedTcp, server_addr)?;
+        self.local_server_port = Some(server_addr.port());
+        self.node.network().listen(Transport::Udp, self.config.discovery_addr)?;
+        self.announce_presence()?;
+        Ok(())
+    }
+
+    pub fn start_network_for_test(&mut self) -> Result<()> {
+        self.start_network()
+    }
+
+    pub fn announce_presence_for_test(&mut self) -> Result<()> {
+        self.announce_presence()
+    }
+
     pub fn process_next_event_for_test(&mut self) -> Result<()> {
+        self.process_next_event_with_timeout_for_test(std::time::Duration::from_secs(2))
+    }
+
+    pub fn process_next_event_with_timeout_for_test(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<()> {
         let event = self
             .receiver
-            .receive_timeout(std::time::Duration::from_secs(2))
+            .receive_timeout(timeout)
             .ok_or_else(|| anyhow::anyhow!("timed out waiting for application event"))?;
+        self.process_node_event(event).map(|_| ())
+    }
 
+    fn process_next_event(&mut self) -> Result<bool> {
+        let event = self.receiver.receive();
+        self.process_node_event(event)
+    }
+
+    fn process_node_event(&mut self, event: NodeEvent<Signal>) -> Result<bool> {
         match event {
             NodeEvent::Network(net_event) => match net_event {
                 NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
@@ -163,41 +222,7 @@ impl<'a> Application<'a> {
                 Signal::Action(action) => self.process_action(action),
                 Signal::AiResponse(payload) => self.process_ai_response(payload),
                 Signal::AiFailed(error) => self.process_ai_failure(error),
-                Signal::SkillDone(output) => {
-                    self.state.add_system_info_message(format!("skill finished: {}", output));
-                }
-                Signal::Close(error) => {
-                    if let Some(error) = error {
-                        return Err(error);
-                    }
-                }
-            },
-        }
-        Ok(())
-    }
-
-    fn process_next_event(&mut self) -> Result<bool> {
-        match self.receiver.receive() {
-            NodeEvent::Network(net_event) => match net_event {
-                NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
-                NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
-                    Some(net_message) => self.process_network_message(endpoint, net_message),
-                    None => return Err(anyhow::anyhow!("unknown message received")),
-                },
-                NetEvent::Disconnected(endpoint) => {
-                    self.state.disconnected_user(endpoint);
-                    self.state.windows.remove(&endpoint);
-                    self.righ_the_bell();
-                }
-            },
-            NodeEvent::Signal(signal) => match signal {
-                Signal::Terminal(term_event) => self.process_terminal_event(term_event)?,
-                Signal::Action(action) => self.process_action(action),
-                Signal::AiResponse(payload) => self.process_ai_response(payload),
-                Signal::AiFailed(error) => self.process_ai_failure(error),
-                Signal::SkillDone(output) => {
-                    self.state.add_system_info_message(format!("skill finished: {}", output));
-                }
+                Signal::SkillDone(payload) => self.process_skill_done(payload),
                 Signal::Close(error) => {
                     self.node.stop();
                     return match error {
@@ -220,6 +245,7 @@ impl<'a> Application<'a> {
                             self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
                         let message = NetMessage::HelloUser(self.config.user_name.clone());
                         self.node.network().send(user_endpoint, self.encoder.encode(message));
+                        self.send_peer_info(user_endpoint);
                         self.state.connected_user(user_endpoint, &user);
                         Ok(())
                     };
@@ -228,6 +254,7 @@ impl<'a> Application<'a> {
             }
             NetMessage::HelloUser(user) => {
                 self.state.connected_user(endpoint, &user);
+                self.send_peer_info(endpoint);
                 self.righ_the_bell();
             }
             NetMessage::UserMessage(content) => {
@@ -288,14 +315,37 @@ impl<'a> Application<'a> {
                     self.state.windows.remove(&endpoint);
                 }
             },
-            NetMessage::AiMessage(payload) => self.process_ai_response(payload),
-            NetMessage::PeerInfo(_) | NetMessage::RoomCreate(_, _) | NetMessage::RoomJoin(_) => {}
-            NetMessage::SkillResult(payload) => {
-                self.state.add_system_info_message(format!(
-                    "skill '{}' finished: {}",
-                    payload.name, payload.output
-                ));
+            NetMessage::AiMessage(payload) => self.process_remote_ai_response(endpoint, payload),
+            NetMessage::PeerInfo(peer) => {
+                self.state.connected_user(endpoint, &peer.user_name);
+                self.state.record_peer(endpoint, peer.clone());
+                let fingerprint = self
+                    .state
+                    .peer_fingerprint(endpoint)
+                    .expect("peer fingerprint should exist after record");
+                if !self.state.is_trusted_peer(&fingerprint) {
+                    self.state.trust_peer_fingerprint(fingerprint.clone());
+                    self.persist_trusted_peer_fingerprint(&fingerprint);
+                    self.state.add_system_info_message(format!(
+                        "trusted peer added: {} ({})",
+                        peer.user_name, fingerprint
+                    ));
+                }
             }
+            NetMessage::RoomCreate(room_id, member_ids) => {
+                if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
+                    let room = self.state.accept_room(&room_id, &member_ids);
+                    self.state.add_system_info_message(format!("joined room {}", room.id));
+                    self.node
+                        .network()
+                        .send(endpoint, self.encoder.encode(NetMessage::RoomJoin(room.id.clone())));
+                }
+            }
+            NetMessage::RoomJoin(room_id) => {
+                let _ = self.state.switch_room(&room_id);
+                self.state.add_system_info_message(format!("room {} is ready", room_id));
+            }
+            NetMessage::SkillResult(payload) => self.record_skill_done(payload, false),
         }
     }
 
@@ -309,6 +359,8 @@ impl<'a> Application<'a> {
                 KeyCode::Char(character) => {
                     if character == 'c' && modifiers.contains(KeyModifiers::CONTROL) {
                         self.node.signals().send_with_priority(Signal::Close(None));
+                    } else if self.handle_confirmation_input(character)? {
+                        // confirmation consumed the key input
                     } else {
                         self.state.input_write(character);
                     }
@@ -349,7 +401,7 @@ impl<'a> Application<'a> {
                 ));
                 for endpoint in self.state.all_user_endpoints() {
                     self.node.network().send(
-                        *endpoint,
+                        endpoint,
                         self.encoder.encode(NetMessage::UserMessage(input.clone())),
                     );
                 }
@@ -402,9 +454,93 @@ impl<'a> Application<'a> {
                     self.state.ai_frequency
                 ));
             }
+            AppCommand::RoomCreate { peers, ai_mode } => {
+                if let Some(missing_peer) = peers
+                    .iter()
+                    .find(|peer| !self.state.peer_names().iter().any(|known| known == *peer))
+                {
+                    self.state.add_system_error_message(format!("unknown peer: {}", missing_peer));
+                    return;
+                }
+
+                let room = self.state.create_room(&peers, ai_mode);
+                let member_ids =
+                    room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
+                for endpoint in self.state.all_user_endpoints() {
+                    if let Some(user_name) = self.state.user_name(endpoint) {
+                        if peers.iter().any(|peer| peer == user_name) {
+                            self.node.network().send(
+                                endpoint,
+                                self.encoder.encode(NetMessage::RoomCreate(
+                                    room.id.clone(),
+                                    member_ids.clone(),
+                                )),
+                            );
+                        }
+                    }
+                }
+                self.state.add_system_info_message(format!("created room {}", room.id));
+            }
+            AppCommand::RoomList => {
+                let room_ids = self.state.room_ids();
+                if room_ids.is_empty() {
+                    self.state.add_system_info_message("no rooms".into());
+                } else {
+                    self.state.add_system_info_message(room_ids.join(", "));
+                }
+            }
+            AppCommand::RoomSwitch(room_id) => match self.state.switch_room(&room_id) {
+                Ok(()) => self.state.add_system_info_message(format!("switched to {}", room_id)),
+                Err(error) => self.state.add_system_error_message(error.to_string()),
+            },
+            AppCommand::Peers => {
+                let peers = self.state.peer_names();
+                if peers.is_empty() {
+                    self.state.add_system_info_message("no peers discovered".into());
+                } else {
+                    self.state.add_system_info_message(peers.join(", "));
+                }
+            }
+            AppCommand::Skills => {
+                if self.state.skill_registry().skills().is_empty() {
+                    self.state.add_system_info_message("no skills found".into());
+                } else {
+                    let mut skills = self
+                        .state
+                        .skill_registry()
+                        .skills()
+                        .iter()
+                        .map(|skill| {
+                            format!(
+                                "{} | {:?} | {:?} | {}",
+                                skill.name, skill.risk, skill.invoke_mode, skill.description
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    skills.insert(0, "name | risk | mode | description".into());
+                    self.state.add_system_info_message(skills.join("\n"));
+                }
+            }
+            AppCommand::Skill { name, args } => self.queue_or_run_skill(name, args),
+            AppCommand::RunProposal(index) => {
+                let Some(proposal) = self.state.find_skill_proposal(index).cloned() else {
+                    self.state.add_system_error_message(format!("unknown proposal id: {}", index));
+                    return;
+                };
+                if !proposal.trusted {
+                    let source = proposal.source_peer.unwrap_or_else(|| "unknown peer".into());
+                    self.state.add_system_error_message(format!(
+                        "permission denied: proposal {} came from untrusted peer {}",
+                        index, source
+                    ));
+                    return;
+                }
+                self.queue_or_run_skill(proposal.skill_name, Vec::new());
+            }
+            AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Help => {
                 self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high>".into(),
+                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel".into(),
                 );
             }
         }
@@ -427,7 +563,7 @@ impl<'a> Application<'a> {
 
         if self.test_mode {
             match self.runtime.block_on(ai_mediator.request(task, &transcript, &last_messages)) {
-                Ok(payload) => self.process_ai_response(payload),
+                Ok(payload) => self.record_ai_response(payload, true, None, true),
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -444,24 +580,106 @@ impl<'a> Application<'a> {
     }
 
     fn process_ai_response(&mut self, payload: AiPayload) {
+        self.record_ai_response(payload, true, None, true);
+    }
+
+    fn process_remote_ai_response(&mut self, endpoint: Endpoint, payload: AiPayload) {
+        let source_peer = self.state.user_name(endpoint).cloned();
+        let trusted = self
+            .state
+            .peer_fingerprint(endpoint)
+            .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
+            .unwrap_or(false);
+        self.record_ai_response(payload, false, source_peer, trusted);
+    }
+
+    fn record_ai_response(
+        &mut self,
+        payload: AiPayload,
+        broadcast: bool,
+        source_peer: Option<String>,
+        trusted: bool,
+    ) {
         self.state.ai_state = AiState::Idle;
         self.state.ai_thinking = false;
         self.state.last_ai_at = Some(Instant::now());
         self.state.human_streak = 0;
         self.state.abort_handle = None;
-        self.state.add_message(ChatMessage::new(
-            "ops-ai ✦".into(),
-            MessageType::AiText(render_ai_payload(&payload)),
-        ));
+        self.state.last_structured_output = payload.structured.clone();
+        if let Some(structured) = payload.structured.as_ref() {
+            self.state.set_skill_proposals(&structured.skill_suggestions, source_peer, trusted);
+        } else {
+            self.state.clear_skill_proposals();
+        }
+        let rendered = render_ai_payload(&payload);
+        let message = ChatMessage::new("ops-ai ✦".into(), MessageType::AiText(rendered.clone()));
+        let room_id = self
+            .state
+            .active_room_id()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("solo-{}", self.config.user_name));
+        let transcript_entry = TranscriptEntry::ai(
+            room_id,
+            "ops-ai",
+            rendered,
+            Some(format!("{:?}", payload.intent).to_ascii_lowercase()),
+            payload
+                .structured
+                .as_ref()
+                .and_then(|structured| serde_json::to_value(structured).ok()),
+            "ai",
+        );
+        self.state.add_message_with_transcript(message, transcript_entry);
+        if broadcast {
+            for endpoint in self.state.all_user_endpoints() {
+                self.node
+                    .network()
+                    .send(endpoint, self.encoder.encode(NetMessage::AiMessage(payload.clone())));
+            }
+        }
         self.righ_the_bell();
     }
 
     fn process_ai_failure(&mut self, error: String) {
-        self.state.ai_state =
-            if self.ai_mediator.is_some() { AiState::Idle } else { AiState::Disabled };
+        self.state.ai_state = if self.ai_mediator.is_some() {
+            AiState::Failed(error.clone())
+        } else {
+            AiState::Disabled
+        };
         self.state.ai_thinking = false;
         self.state.abort_handle = None;
         self.state.add_system_error_message(format!("[ops-ai: failed] {}", error));
+    }
+
+    fn process_skill_done(&mut self, payload: SkillResultPayload) {
+        self.record_skill_done(payload, true);
+    }
+
+    fn record_skill_done(&mut self, payload: SkillResultPayload, broadcast: bool) {
+        self.state.ai_state =
+            if payload.success { AiState::Idle } else { AiState::Failed(payload.summary.clone()) };
+        self.state.ai_thinking = false;
+        self.state.abort_handle = None;
+        self.state.clear_pending_confirmation();
+        let text = if payload.success {
+            format!("{}: {}", payload.skill_name, payload.summary)
+        } else {
+            format!("[ops-ai: failed] {}", payload.summary)
+        };
+        let message = ChatMessage::new("ops-ai ✦".into(), MessageType::AiText(text.clone()));
+        let room_id = self
+            .state
+            .active_room_id()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("solo-{}", self.config.user_name));
+        let transcript_entry = TranscriptEntry::ai(room_id, "ops-ai", text, None, None, "skill");
+        self.state.add_message_with_transcript(message, transcript_entry);
+        if broadcast {
+            let net_message = NetMessage::SkillResult(payload);
+            for endpoint in self.state.all_user_endpoints() {
+                self.node.network().send(endpoint, self.encoder.encode(net_message.clone()));
+            }
+        }
     }
 
     fn process_action(&mut self, mut action: Box<dyn Action>) {
@@ -489,9 +707,165 @@ impl<'a> Application<'a> {
         self.process_input_line(input.to_string())
     }
 
+    pub fn handle_confirmation_input_for_test(&mut self, character: char) -> Result<()> {
+        let _ = self.handle_confirmation_input(character)?;
+        Ok(())
+    }
+
+    pub fn local_server_port_for_test(&self) -> Option<u16> {
+        self.local_server_port
+    }
+
+    pub fn connect_peer_for_test(&mut self, server_port: u16) -> Result<()> {
+        let server_addr = (Ipv4Addr::LOCALHOST, server_port);
+        let (endpoint, _) = self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
+        self.node.network().send(
+            endpoint,
+            self.encoder.encode(NetMessage::HelloUser(self.config.user_name.clone())),
+        );
+        self.send_peer_info(endpoint);
+        Ok(())
+    }
+
     pub fn righ_the_bell(&self) {
         if self.config.terminal_bell {
             print!("\x07");
+        }
+    }
+
+    fn send_peer_info(&self, endpoint: Endpoint) {
+        let Some(server_port) = self.local_server_port else {
+            return;
+        };
+
+        let peer = PeerInfo {
+            user_name: self.config.user_name.clone(),
+            server_port,
+            node_version: env!("CARGO_PKG_VERSION").into(),
+        };
+        let mut encoder = Encoder::new();
+        self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
+    }
+
+    fn announce_presence(&mut self) -> Result<()> {
+        let server_port = self
+            .local_server_port
+            .ok_or_else(|| anyhow::anyhow!("network has not been started"))?;
+        let (discovery_endpoint, _) =
+            self.node.network().connect_sync(Transport::Udp, self.config.discovery_addr)?;
+        let message = NetMessage::HelloLan(self.config.user_name.clone(), server_port);
+        self.node.network().send(discovery_endpoint, self.encoder.encode(message));
+        Ok(())
+    }
+
+    fn queue_or_run_skill(&mut self, name: String, args: Vec<String>) {
+        let Some(meta) = self.state.skill_registry().find(&name).cloned() else {
+            self.state.add_system_error_message(format!("unknown skill: {}", name));
+            return;
+        };
+
+        match meta.invoke_mode {
+            InvokeMode::Suggest => {
+                self.state.add_system_info_message(format!(
+                    "skill '{}' is suggest-only and cannot be executed directly",
+                    meta.name
+                ));
+            }
+            InvokeMode::AutoSafe if meta.risk == RiskLevel::Low => {
+                self.start_skill_execution(PendingSkillExecution { meta, args });
+            }
+            InvokeMode::Confirm | InvokeMode::Manual | InvokeMode::AutoSafe => {
+                let prompt = format!("[{}] 実行しますか? [y/n]", meta.name);
+                self.state.queue_skill_confirmation(PendingSkillExecution { meta, args });
+                self.state.add_system_info_message(prompt);
+            }
+        }
+    }
+
+    fn handle_confirmation_input(&mut self, character: char) -> Result<bool> {
+        if self.state.pending_confirmation().is_none() {
+            return Ok(false);
+        }
+
+        match character.to_ascii_lowercase() {
+            'y' => {
+                if let Some(pending) = self.state.take_pending_confirmation() {
+                    self.start_skill_execution(pending);
+                }
+                Ok(true)
+            }
+            'n' => {
+                self.state.clear_pending_confirmation();
+                self.state.add_system_info_message("skill execution cancelled".into());
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn start_skill_execution(&mut self, pending: PendingSkillExecution) {
+        let Some(ai_mediator) = self.ai_mediator.clone() else {
+            self.state.add_system_error_message("AI sidecar is unavailable".into());
+            return;
+        };
+
+        if let Some(handle) = self.state.abort_handle.take() {
+            handle.abort();
+        }
+
+        self.state.ai_state = AiState::Acting;
+        self.state.add_system_info_message(format!("[ops-ai: /{} 実行中...]", pending.meta.name));
+
+        if self.test_mode {
+            let payload = self.runtime.block_on(SkillExecutor::run(
+                ai_mediator.as_ref(),
+                &pending.meta,
+                &pending.args,
+            ));
+            self.process_skill_done(payload);
+            return;
+        }
+
+        let node = self.node.clone();
+        let task_handle = self.runtime.handle().spawn(async move {
+            let payload =
+                SkillExecutor::run(ai_mediator.as_ref(), &pending.meta, &pending.args).await;
+            node.signals().send(Signal::SkillDone(payload));
+        });
+        self.state.abort_handle = Some(task_handle.abort_handle());
+    }
+
+    fn cancel_active_task(&mut self) {
+        if let Some(handle) = self.state.abort_handle.take() {
+            handle.abort();
+            self.state.ai_state = AiState::Idle;
+            self.state.ai_thinking = false;
+            self.state.clear_pending_confirmation();
+            self.state.add_system_info_message("active task cancelled".into());
+        } else if self.state.pending_confirmation().is_some() {
+            self.state.clear_pending_confirmation();
+            self.state.add_system_info_message("skill execution cancelled".into());
+        } else {
+            self.state.add_system_info_message("no active task".into());
+        }
+    }
+
+    fn persist_trusted_peer_fingerprint(&self, fingerprint: &str) {
+        let Some(path) = crate::config::Config::config_file_path() else {
+            return;
+        };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(mut stored) = toml::from_str::<Config>(&raw) else {
+            return;
+        };
+        if stored.security.trusted_peers.iter().any(|known| known == fingerprint) {
+            return;
+        }
+        stored.security.trusted_peers.push(fingerprint.to_string());
+        if let Ok(serialized) = toml::to_string(&stored) {
+            let _ = std::fs::write(path, serialized);
         }
     }
 }
