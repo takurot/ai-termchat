@@ -7,9 +7,10 @@ use tui::Frame;
 
 use std::io::Write;
 
-use crate::avatar::builtin::human_default;
+use crate::avatar::builtin::render_human;
 use crate::avatar::{AvatarSize, AvatarState};
 use crate::state::State;
+use crate::ui::layout::truncate;
 
 /// Draws the left peers panel (18-column side panel).
 ///
@@ -21,8 +22,6 @@ pub fn draw_peers_panel(
     state: &State,
     chunk: Rect,
 ) {
-    let avatar = human_default();
-
     let mut lines: Vec<Spans> = vec![Spans::from(Span::styled(
         "Peers",
         Style::default().add_modifier(Modifier::BOLD),
@@ -30,7 +29,7 @@ pub fn draw_peers_panel(
 
     for peer_name in state.peer_names() {
         // Compact avatar + name line
-        let av = avatar.render(AvatarState::Online, AvatarSize::Compact);
+        let av = render_human(AvatarState::Online, AvatarSize::Compact);
         lines.push(Spans::from(vec![
             Span::styled(av, Style::default().fg(Color::Green)),
             Span::raw(" "),
@@ -56,7 +55,3 @@ pub fn draw_peers_panel(
     frame.render_widget(panel, chunk);
 }
 
-/// Truncates a string to `max_chars` Unicode scalar values.
-fn truncate(s: &str, max_chars: usize) -> String {
-    s.chars().take(max_chars).collect()
-}

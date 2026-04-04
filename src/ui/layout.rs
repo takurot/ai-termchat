@@ -10,3 +10,8 @@ pub fn three_pane_constraints() -> Vec<Constraint> {
 pub fn should_show_side_panels(cols: u16) -> bool {
     cols >= 80
 }
+
+/// Truncates a string to `max_chars` Unicode scalar values.
+pub fn truncate(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}

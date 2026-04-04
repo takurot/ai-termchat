@@ -595,10 +595,18 @@ impl<'a> Application<'a> {
             }
             AvatarCommandKind::Mode(mode) => {
                 match mode.as_str() {
-                    "compact" | "normal" | "expressive" => {
-                        self.state.avatar_size = mode.clone();
+                    "compact" => {
+                        self.state.avatar_size = AvatarSize::Compact;
+                        self.state.add_system_info_message("Avatar mode set to 'compact'".into());
+                    }
+                    "normal" => {
+                        self.state.avatar_size = AvatarSize::Normal;
+                        self.state.add_system_info_message("Avatar mode set to 'normal'".into());
+                    }
+                    "expressive" => {
+                        self.state.avatar_size = AvatarSize::Expressive;
                         self.state
-                            .add_system_info_message(format!("Avatar mode set to '{}'", mode));
+                            .add_system_info_message("Avatar mode set to 'expressive'".into());
                     }
                     other => {
                         self.state.add_system_warn_message(format!(

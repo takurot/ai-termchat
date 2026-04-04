@@ -8,6 +8,7 @@ use rgb::RGB8;
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
+use crate::avatar::AvatarSize;
 use crate::message::{AiPayload, PeerInfo, StructuredOutput};
 use crate::room::transcript::{TranscriptEntry, TranscriptWriter};
 use crate::room::{Room, RoomEngine};
@@ -136,8 +137,8 @@ pub struct State {
     pub user_avatar: String,
     /// Preset name for the AI avatar (default: `"ai_default"`).
     pub ai_avatar: String,
-    /// Global avatar size hint (one of `"compact"`, `"normal"`, `"expressive"`).
-    pub avatar_size: String,
+    /// Global avatar size hint.
+    pub avatar_size: AvatarSize,
 }
 
 impl Default for State {
@@ -171,7 +172,7 @@ impl Default for State {
             last_structured_output: None,
             user_avatar: "human_default".into(),
             ai_avatar: "ai_default".into(),
-            avatar_size: "normal".into(),
+            avatar_size: AvatarSize::Normal,
         }
     }
 }

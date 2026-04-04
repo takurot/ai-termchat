@@ -7,9 +7,10 @@ use tui::Frame;
 
 use std::io::Write;
 
-use crate::avatar::builtin::ai_default;
+use crate::avatar::builtin::render_ai;
 use crate::avatar::{AvatarSize, AvatarState};
 use crate::state::{AiMode, AiState, SkillProposal, State};
+use crate::ui::layout::truncate;
 
 /// Draws the right status panel (22-column side panel).
 ///
@@ -21,8 +22,7 @@ pub fn draw_status_panel(
     chunk: Rect,
 ) {
     let avatar_state = ai_state_to_avatar_state(&state.ai_state);
-    let avatar = ai_default();
-    let av_art = avatar.render(avatar_state, AvatarSize::Normal);
+    let av_art = render_ai(avatar_state, AvatarSize::Normal);
 
     let mut lines: Vec<Spans> = Vec::new();
 
@@ -151,6 +151,3 @@ fn proposal_span(proposal: &SkillProposal) -> Spans<'static> {
     Spans::from(Span::styled(text, Style::default().fg(Color::LightBlue)))
 }
 
-fn truncate(s: &str, max_chars: usize) -> String {
-    s.chars().take(max_chars).collect()
-}

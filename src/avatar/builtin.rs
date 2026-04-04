@@ -214,6 +214,16 @@ pub fn all_builtins() -> Vec<Box<dyn AvatarPlugin>> {
     vec![human_default(), ai_default(), robot_guardian()]
 }
 
+/// Render the `human_default` avatar without a heap allocation.
+pub fn render_human(state: AvatarState, size: AvatarSize) -> String {
+    HumanDefault.render(state, size)
+}
+
+/// Render the `ai_default` avatar without a heap allocation.
+pub fn render_ai(state: AvatarState, size: AvatarSize) -> String {
+    AiDefault.render(state, size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

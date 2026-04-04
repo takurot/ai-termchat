@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
-use tracing::warn;
-
 use super::builtin::{ai_default, all_builtins};
 use super::{AvatarPlugin, AvatarSize, AvatarState};
 #[cfg(feature = "avatar-ffi")]
 use super::{AvatarPluginVTable, VTABLE_VERSION};
+#[cfg(feature = "avatar-ffi")]
+use tracing::warn;
 
 /// Manages avatar plugins: builtin presets + optional external `.so`/`.dylib`
 /// files loaded from a directory.
@@ -25,7 +25,9 @@ impl AvatarManager {
     ///
     /// Builtins are always registered first.
     pub fn new(plugin_dir: PathBuf) -> Self {
-        let mut plugins: Vec<Box<dyn AvatarPlugin>> = all_builtins();
+        let plugins: Vec<Box<dyn AvatarPlugin>> = all_builtins();
+        #[cfg(feature = "avatar-ffi")]
+        let mut plugins = plugins;
 
         #[cfg(feature = "avatar-ffi")]
         {
