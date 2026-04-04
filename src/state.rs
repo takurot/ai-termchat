@@ -235,7 +235,6 @@ impl State {
         &self.local_user_name
     }
 
-
     pub fn set_local_user_name(&mut self, user_name: impl Into<String>) {
         self.local_user_name = user_name.into();
     }
