@@ -35,3 +35,16 @@ fn transcript_writer_creates_directories_automatically() {
     assert!(base.path().join("triadchat/transcripts").exists());
     drop(writer);
 }
+
+#[test]
+fn transcript_writer_routes_entries_to_room_specific_files() {
+    let base = TempDir::new().unwrap();
+    let room_a = TranscriptEntry::chat("room-a", "takuro", "human", "chat", "a");
+    let room_b = TranscriptEntry::chat("room-b", "tanaka", "human", "chat", "b");
+
+    TranscriptWriter::append_to_base(base.path(), &room_a).unwrap();
+    TranscriptWriter::append_to_base(base.path(), &room_b).unwrap();
+
+    assert!(base.path().join("triadchat/transcripts/room-a.jsonl").exists());
+    assert!(base.path().join("triadchat/transcripts/room-b.jsonl").exists());
+}

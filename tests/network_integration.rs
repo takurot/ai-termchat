@@ -43,15 +43,15 @@ fn pump_until<F>(
 fn peer_handshake_and_room_create_propagates() {
     let discovery_port = 38000 + (rand::random::<u16>() % 1000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port + 1);
+    let tanaka_config = test_config("tanaka", discovery_port);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
     takuro.start_network_for_test().unwrap();
     std::thread::sleep(Duration::from_millis(100));
     tanaka.start_network_for_test().unwrap();
-    std::thread::sleep(Duration::from_millis(100));
-    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
+    takuro.announce_presence_for_test().unwrap();
+    tanaka.announce_presence_for_test().unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
         left.state().peers().len() == 1 && right.state().peers().len() == 1

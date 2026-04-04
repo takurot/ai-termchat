@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use chrono::{DateTime, Local};
@@ -118,7 +119,8 @@ pub struct State {
     skill_registry: SkillRegistry,
     pending_confirmation: Option<PendingSkillExecution>,
     pending_skill_proposals: Vec<SkillProposal>,
-    transcript: Option<TranscriptWriter>,
+    transcript_base_dir: Option<PathBuf>,
+    trusted_peer_fingerprints: HashSet<String>,
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
@@ -148,7 +150,8 @@ impl Default for State {
             skill_registry: SkillRegistry::default(),
             pending_confirmation: None,
             pending_skill_proposals: Vec::new(),
-            transcript: None,
+            transcript_base_dir: None,
+            trusted_peer_fingerprints: HashSet::new(),
             stop_stream: false,
             windows: HashMap::new(),
             ai_state: AiState::Idle,
@@ -230,8 +233,23 @@ impl State {
         &self.skill_registry
     }
 
-    pub fn set_transcript_writer(&mut self, transcript: Option<TranscriptWriter>) {
-        self.transcript = transcript;
+    pub fn set_transcript_base_dir(&mut self, transcript_base_dir: Option<PathBuf>) {
+        self.transcript_base_dir = transcript_base_dir;
+    }
+
+    pub fn set_trusted_peer_fingerprints(
+        &mut self,
+        fingerprints: impl IntoIterator<Item = String>,
+    ) {
+        self.trusted_peer_fingerprints = fingerprints.into_iter().collect();
+    }
+
+    pub fn trust_peer_fingerprint(&mut self, fingerprint: impl Into<String>) {
+        self.trusted_peer_fingerprints.insert(fingerprint.into());
+    }
+
+    pub fn is_trusted_peer(&self, fingerprint: &str) -> bool {
+        self.trusted_peer_fingerprints.contains(fingerprint)
     }
 
     pub fn pending_confirmation(&self) -> Option<&PendingSkillExecution> {
@@ -544,8 +562,8 @@ impl State {
     }
 
     fn write_transcript_entry(&mut self, entry: TranscriptEntry) {
-        if let Some(transcript) = self.transcript.as_mut() {
-            let _ = transcript.append(&entry);
+        if let Some(base_dir) = self.transcript_base_dir.as_ref() {
+            let _ = TranscriptWriter::append_to_base(base_dir, &entry);
         }
     }
 
