@@ -22,10 +22,8 @@ pub fn draw_peers_panel(
     state: &State,
     chunk: Rect,
 ) {
-    let mut lines: Vec<Spans> = vec![Spans::from(Span::styled(
-        "Peers",
-        Style::default().add_modifier(Modifier::BOLD),
-    ))];
+    let mut lines: Vec<Spans> =
+        vec![Spans::from(Span::styled("Peers", Style::default().add_modifier(Modifier::BOLD)))];
 
     for peer_name in state.peer_names() {
         // Compact avatar + name line
@@ -33,18 +31,12 @@ pub fn draw_peers_panel(
         lines.push(Spans::from(vec![
             Span::styled(av, Style::default().fg(Color::Green)),
             Span::raw(" "),
-            Span::styled(
-                truncate(&peer_name, 10),
-                Style::default().fg(Color::LightGreen),
-            ),
+            Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)),
         ]));
     }
 
     if lines.len() == 1 {
-        lines.push(Spans::from(Span::styled(
-            "(no peers)",
-            Style::default().fg(Color::DarkGray),
-        )));
+        lines.push(Spans::from(Span::styled("(no peers)", Style::default().fg(Color::DarkGray))));
     }
 
     let panel = Paragraph::new(lines).block(
@@ -54,4 +46,3 @@ pub fn draw_peers_panel(
     );
     frame.render_widget(panel, chunk);
 }
-

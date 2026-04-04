@@ -32,7 +32,11 @@ impl AvatarSize {
     /// Choose a size based on terminal column width.
     /// Columns < 80 → Compact, otherwise Normal.
     pub fn for_width(cols: u16) -> Self {
-        if cols < 80 { AvatarSize::Compact } else { AvatarSize::Normal }
+        if cols < 80 {
+            AvatarSize::Compact
+        } else {
+            AvatarSize::Normal
+        }
     }
 }
 

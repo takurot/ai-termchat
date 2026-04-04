@@ -21,7 +21,9 @@ use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
 use crate::commands::skill_cmd::{CancelCommand, RunCommand, SkillCommand, SkillsCommand};
 use crate::commands::summary_cmd::SummaryCommand;
-use crate::commands::{AppCommand, AvatarCommandKind, CommandManager, ParsedCommand, SummaryCommandKind};
+use crate::commands::{
+    AppCommand, AvatarCommandKind, CommandManager, ParsedCommand, SummaryCommandKind,
+};
 use crate::config::Config;
 use crate::encoder::{self, Encoder};
 use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
@@ -572,12 +574,10 @@ impl<'a> Application<'a> {
                 }
                 if target == "self" || target == self.state.local_user_name() {
                     self.state.user_avatar = preset.clone();
-                    self.state
-                        .add_system_info_message(format!("Your avatar set to '{}'", preset));
+                    self.state.add_system_info_message(format!("Your avatar set to '{}'", preset));
                 } else if target == "@ops-ai" || target == "ops-ai" {
                     self.state.ai_avatar = preset.clone();
-                    self.state
-                        .add_system_info_message(format!("AI avatar set to '{}'", preset));
+                    self.state.add_system_info_message(format!("AI avatar set to '{}'", preset));
                 } else {
                     self.state.add_system_warn_message(format!(
                         "Unknown target '{}'. Use 'self', 'ops-ai', or your username.",
@@ -593,29 +593,26 @@ impl<'a> Application<'a> {
                     self.state.add_system_info_message(format!("{}\n{}", label, art));
                 }
             }
-            AvatarCommandKind::Mode(mode) => {
-                match mode.as_str() {
-                    "compact" => {
-                        self.state.avatar_size = AvatarSize::Compact;
-                        self.state.add_system_info_message("Avatar mode set to 'compact'".into());
-                    }
-                    "normal" => {
-                        self.state.avatar_size = AvatarSize::Normal;
-                        self.state.add_system_info_message("Avatar mode set to 'normal'".into());
-                    }
-                    "expressive" => {
-                        self.state.avatar_size = AvatarSize::Expressive;
-                        self.state
-                            .add_system_info_message("Avatar mode set to 'expressive'".into());
-                    }
-                    other => {
-                        self.state.add_system_warn_message(format!(
-                            "Unknown avatar mode '{}'. Use compact, normal, or expressive.",
-                            other
-                        ));
-                    }
+            AvatarCommandKind::Mode(mode) => match mode.as_str() {
+                "compact" => {
+                    self.state.avatar_size = AvatarSize::Compact;
+                    self.state.add_system_info_message("Avatar mode set to 'compact'".into());
                 }
-            }
+                "normal" => {
+                    self.state.avatar_size = AvatarSize::Normal;
+                    self.state.add_system_info_message("Avatar mode set to 'normal'".into());
+                }
+                "expressive" => {
+                    self.state.avatar_size = AvatarSize::Expressive;
+                    self.state.add_system_info_message("Avatar mode set to 'expressive'".into());
+                }
+                other => {
+                    self.state.add_system_warn_message(format!(
+                        "Unknown avatar mode '{}'. Use compact, normal, or expressive.",
+                        other
+                    ));
+                }
+            },
             AvatarCommandKind::List => {
                 let presets = self.avatar_manager.list_all_presets();
                 self.state.add_system_info_message(format!(

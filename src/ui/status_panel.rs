@@ -48,10 +48,7 @@ pub fn draw_status_panel(
     // State line
     lines.push(Spans::from(vec![
         Span::styled("State: ", Style::default().fg(Color::Gray)),
-        Span::styled(
-            format_ai_state(&state.ai_state),
-            ai_state_color(&state.ai_state),
-        ),
+        Span::styled(format_ai_state(&state.ai_state), ai_state_color(&state.ai_state)),
     ]));
 
     lines.push(Spans::from(Span::raw("")));
@@ -77,16 +74,11 @@ pub fn draw_status_panel(
                 Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
             )));
             for todo in structured.todos.iter().take(5) {
-                let assignee = todo
-                    .assignee
-                    .as_deref()
-                    .map(|a| format!("[{}] ", a))
-                    .unwrap_or_default();
+                let assignee =
+                    todo.assignee.as_deref().map(|a| format!("[{}] ", a)).unwrap_or_default();
                 let text = format!("• {}{}", assignee, truncate(&todo.text, 16));
-                lines.push(Spans::from(Span::styled(
-                    text,
-                    Style::default().fg(Color::LightYellow),
-                )));
+                lines
+                    .push(Spans::from(Span::styled(text, Style::default().fg(Color::LightYellow))));
             }
         }
     }
@@ -142,12 +134,7 @@ fn ai_state_color(state: &AiState) -> Style {
 
 fn proposal_span(proposal: &SkillProposal) -> Spans<'static> {
     let trusted_marker = if proposal.trusted { "✓" } else { "?" };
-    let text = format!(
-        "[{}] {} {}",
-        proposal.id,
-        trusted_marker,
-        truncate(&proposal.skill_name, 12)
-    );
+    let text =
+        format!("[{}] {} {}", proposal.id, trusted_marker, truncate(&proposal.skill_name, 12));
     Spans::from(Span::styled(text, Style::default().fg(Color::LightBlue)))
 }
-

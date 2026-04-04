@@ -23,10 +23,7 @@ fn human_default_returns_non_empty_for_all_states_and_sizes() {
     for state in all_states() {
         for size in all_sizes() {
             let rendered = plugin.render(state.clone(), size);
-            assert!(
-                !rendered.is_empty(),
-                "human_default rendered empty for {state:?} {size:?}"
-            );
+            assert!(!rendered.is_empty(), "human_default rendered empty for {state:?} {size:?}");
         }
     }
 }
@@ -57,10 +54,7 @@ fn ai_default_returns_non_empty_for_all_states_and_sizes() {
     for state in all_states() {
         for size in all_sizes() {
             let rendered = plugin.render(state.clone(), size);
-            assert!(
-                !rendered.is_empty(),
-                "ai_default rendered empty for {state:?} {size:?}"
-            );
+            assert!(!rendered.is_empty(), "ai_default rendered empty for {state:?} {size:?}");
         }
     }
 }
@@ -94,10 +88,7 @@ fn robot_guardian_returns_non_empty_for_all_states_and_sizes() {
     for state in all_states() {
         for size in all_sizes() {
             let rendered = plugin.render(state.clone(), size);
-            assert!(
-                !rendered.is_empty(),
-                "robot_guardian rendered empty for {state:?} {size:?}"
-            );
+            assert!(!rendered.is_empty(), "robot_guardian rendered empty for {state:?} {size:?}");
         }
     }
 }

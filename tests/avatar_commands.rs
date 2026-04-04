@@ -12,10 +12,7 @@ fn avatar_list_parses() {
     let result = manager().find_command("/avatar list");
     assert!(result.is_some(), "command must be recognised");
     let cmd = result.unwrap().expect("must parse without error");
-    assert!(matches!(
-        cmd,
-        ParsedCommand::App(AppCommand::Avatar(AvatarCommandKind::List))
-    ));
+    assert!(matches!(cmd, ParsedCommand::App(AppCommand::Avatar(AvatarCommandKind::List))));
 }
 
 // ─── /avatar preview ─────────────────────────────────────────────────────────
@@ -30,10 +27,7 @@ fn avatar_preview_parses() {
 
 #[test]
 fn avatar_set_parses_target_and_preset() {
-    let cmd = manager()
-        .find_command("/avatar set @ops-ai robot_guardian")
-        .unwrap()
-        .unwrap();
+    let cmd = manager().find_command("/avatar set @ops-ai robot_guardian").unwrap().unwrap();
     match cmd {
         ParsedCommand::App(AppCommand::Avatar(AvatarCommandKind::Set { target, preset })) => {
             assert_eq!(target, "@ops-ai");

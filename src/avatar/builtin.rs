@@ -19,15 +19,9 @@ impl AvatarPlugin for HumanDefault {
                 _ => "[H]·".into(),
             },
             AvatarSize::Normal => match state {
-                AvatarState::Online | AvatarState::Idle => {
-                    " (^_^)\n  |H|\n  / \\".into()
-                }
-                AvatarState::Busy | AvatarState::Acting => {
-                    " (>_<)\n  |H|\n  / \\".into()
-                }
-                AvatarState::Away => {
-                    " (-_-)\n  |H|\n  / \\".into()
-                }
+                AvatarState::Online | AvatarState::Idle => " (^_^)\n  |H|\n  / \\".into(),
+                AvatarState::Busy | AvatarState::Acting => " (>_<)\n  |H|\n  / \\".into(),
+                AvatarState::Away => " (-_-)\n  |H|\n  / \\".into(),
                 AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
                     " (x_x)\n  |H|\n  / \\".into()
                 }
@@ -40,15 +34,11 @@ impl AvatarPlugin for HumanDefault {
                 AvatarState::Busy | AvatarState::Acting => {
                     "  .-\"\"-.\n ( >_< )\n  \\|H|/\n  / | \\\n /  |  \\".into()
                 }
-                AvatarState::Away => {
-                    "  .-\"\"-.\n ( -_- )\n  \\|H|/\n  / | \\\n /  |  \\".into()
-                }
+                AvatarState::Away => "  .-\"\"-.\n ( -_- )\n  \\|H|/\n  / | \\\n /  |  \\".into(),
                 AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
                     "  .-\"\"-.\n ( x_x )\n  \\|H|/\n  / | \\\n /  |  \\".into()
                 }
-                _ => {
-                    "  .-\"\"-.\n ( o_o )\n  \\|H|/\n  / | \\\n /  |  \\".into()
-                }
+                _ => "  .-\"\"-.\n ( o_o )\n  \\|H|/\n  / | \\\n /  |  \\".into(),
             },
         }
     }
@@ -79,42 +69,22 @@ impl AvatarPlugin for AiDefault {
                 _ => "[AI]·".into(),
             },
             AvatarSize::Normal => match state {
-                AvatarState::Idle | AvatarState::Online => {
-                    " [*_*]\n  |AI|\n  / \\".into()
-                }
-                AvatarState::Thinking => {
-                    " [._.]  \n  |AI| ~\n  / \\".into()
-                }
-                AvatarState::Acting => {
-                    " [>_>]\n  |AI|\n  >>\\".into()
-                }
-                AvatarState::Disabled => {
-                    " [- -]\n  |AI|\n  / \\".into()
-                }
-                AvatarState::Failed => {
-                    " [!_!]\n  |AI|\n  / \\".into()
-                }
+                AvatarState::Idle | AvatarState::Online => " [*_*]\n  |AI|\n  / \\".into(),
+                AvatarState::Thinking => " [._.]  \n  |AI| ~\n  / \\".into(),
+                AvatarState::Acting => " [>_>]\n  |AI|\n  >>\\".into(),
+                AvatarState::Disabled => " [- -]\n  |AI|\n  / \\".into(),
+                AvatarState::Failed => " [!_!]\n  |AI|\n  / \\".into(),
                 _ => " [o_o]\n  |AI|\n  / \\".into(),
             },
             AvatarSize::Expressive => match state {
                 AvatarState::Idle | AvatarState::Online => {
                     "  .---.\n |*_ *|\n  |AI|\n  / | \\\n /  |  \\".into()
                 }
-                AvatarState::Thinking => {
-                    "  .---.\n |._. |  ~\n  |AI|\n  / | \\\n /  |  \\".into()
-                }
-                AvatarState::Acting => {
-                    "  .---.\n |>_> |\n  |AI|\n  >> | \\\n />> |  \\".into()
-                }
-                AvatarState::Disabled => {
-                    "  .---.\n |- - |\n  |AI|\n  / | \\\n /  |  \\".into()
-                }
-                AvatarState::Failed => {
-                    "  .---.\n |!_! |\n  |AI|\n  / | \\\n /  |  \\".into()
-                }
-                _ => {
-                    "  .---.\n |o_o |\n  |AI|\n  / | \\\n /  |  \\".into()
-                }
+                AvatarState::Thinking => "  .---.\n |._. |  ~\n  |AI|\n  / | \\\n /  |  \\".into(),
+                AvatarState::Acting => "  .---.\n |>_> |\n  |AI|\n  >> | \\\n />> |  \\".into(),
+                AvatarState::Disabled => "  .---.\n |- - |\n  |AI|\n  / | \\\n /  |  \\".into(),
+                AvatarState::Failed => "  .---.\n |!_! |\n  |AI|\n  / | \\\n /  |  \\".into(),
+                _ => "  .---.\n |o_o |\n  |AI|\n  / | \\\n /  |  \\".into(),
             },
         }
     }
@@ -147,56 +117,26 @@ impl AvatarPlugin for RobotGuardian {
                 AvatarState::Offline => "[RG]□".into(),
             },
             AvatarSize::Normal => match state {
-                AvatarState::Idle | AvatarState::Online => {
-                    " <|=|>\n [RG]\n  /|\\".into()
-                }
-                AvatarState::Thinking => {
-                    " <|?|>\n [RG] ~\n  /|\\".into()
-                }
-                AvatarState::Acting => {
-                    " <|!|>\n [RG]\n  >>\\".into()
-                }
-                AvatarState::Disabled => {
-                    " <|-|>\n [RG]\n  /|\\".into()
-                }
-                AvatarState::Failed => {
-                    " <|X|>\n [RG]\n  /|\\".into()
-                }
-                AvatarState::Busy => {
-                    " <|*|>\n [RG]\n  /|\\".into()
-                }
-                AvatarState::Away => {
-                    " <|.|>\n [RG]\n  /|\\".into()
-                }
-                AvatarState::Offline => {
-                    " <| |>\n [RG]\n  /|\\".into()
-                }
+                AvatarState::Idle | AvatarState::Online => " <|=|>\n [RG]\n  /|\\".into(),
+                AvatarState::Thinking => " <|?|>\n [RG] ~\n  /|\\".into(),
+                AvatarState::Acting => " <|!|>\n [RG]\n  >>\\".into(),
+                AvatarState::Disabled => " <|-|>\n [RG]\n  /|\\".into(),
+                AvatarState::Failed => " <|X|>\n [RG]\n  /|\\".into(),
+                AvatarState::Busy => " <|*|>\n [RG]\n  /|\\".into(),
+                AvatarState::Away => " <|.|>\n [RG]\n  /|\\".into(),
+                AvatarState::Offline => " <| |>\n [RG]\n  /|\\".into(),
             },
             AvatarSize::Expressive => match state {
                 AvatarState::Idle | AvatarState::Online => {
                     " ┌─────┐\n │ |=| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
                 }
-                AvatarState::Thinking => {
-                    " ┌─────┐\n │ |?| │~\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Acting => {
-                    " ┌─────┐\n │ |!| │\n │[RG] │\n └──┬──┘\n  >>|\\".into()
-                }
-                AvatarState::Disabled => {
-                    " ┌─────┐\n │ |-| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Failed => {
-                    " ┌─────┐\n │ |X| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Busy => {
-                    " ┌─────┐\n │ |*| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Away => {
-                    " ┌─────┐\n │ |.| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Offline => {
-                    " ┌─────┐\n │ | | │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
+                AvatarState::Thinking => " ┌─────┐\n │ |?| │~\n │[RG] │\n └──┬──┘\n   /|\\".into(),
+                AvatarState::Acting => " ┌─────┐\n │ |!| │\n │[RG] │\n └──┬──┘\n  >>|\\".into(),
+                AvatarState::Disabled => " ┌─────┐\n │ |-| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
+                AvatarState::Failed => " ┌─────┐\n │ |X| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
+                AvatarState::Busy => " ┌─────┐\n │ |*| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
+                AvatarState::Away => " ┌─────┐\n │ |.| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
+                AvatarState::Offline => " ┌─────┐\n │ | | │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
             },
         }
     }
