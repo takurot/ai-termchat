@@ -113,11 +113,9 @@ impl<'a> Application<'a> {
         let mut state = State::default();
         state.set_local_user_name(config.user_name.clone());
         state.ui_language = config.language.ui.clone();
+        state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
-        state.set_transcript_writer(
-            crate::room::transcript::TranscriptWriter::open(&format!("solo-{}", config.user_name))
-                .ok(),
-        );
+        state.set_transcript_base_dir(dirs_next::data_dir());
 
         let ai_mediator = if config.ai.enabled {
             match AiMediator::new(workspace, &config.ai, &config.language) {
@@ -320,7 +318,19 @@ impl<'a> Application<'a> {
             NetMessage::AiMessage(payload) => self.process_remote_ai_response(endpoint, payload),
             NetMessage::PeerInfo(peer) => {
                 self.state.connected_user(endpoint, &peer.user_name);
-                self.state.record_peer(endpoint, peer);
+                self.state.record_peer(endpoint, peer.clone());
+                let fingerprint = self
+                    .state
+                    .peer_fingerprint(endpoint)
+                    .expect("peer fingerprint should exist after record");
+                if !self.state.is_trusted_peer(&fingerprint) {
+                    self.state.trust_peer_fingerprint(fingerprint.clone());
+                    self.persist_trusted_peer_fingerprint(&fingerprint);
+                    self.state.add_system_info_message(format!(
+                        "trusted peer added: {} ({})",
+                        peer.user_name, fingerprint
+                    ));
+                }
             }
             NetMessage::RoomCreate(room_id, member_ids) => {
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
@@ -578,9 +588,7 @@ impl<'a> Application<'a> {
         let trusted = self
             .state
             .peer_fingerprint(endpoint)
-            .map(|fingerprint| {
-                self.config.security.trusted_peers.iter().any(|known| known == &fingerprint)
-            })
+            .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
             .unwrap_or(false);
         self.record_ai_response(payload, false, source_peer, trusted);
     }
@@ -839,6 +847,25 @@ impl<'a> Application<'a> {
             self.state.add_system_info_message("skill execution cancelled".into());
         } else {
             self.state.add_system_info_message("no active task".into());
+        }
+    }
+
+    fn persist_trusted_peer_fingerprint(&self, fingerprint: &str) {
+        let Some(path) = crate::config::Config::config_file_path() else {
+            return;
+        };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(mut stored) = toml::from_str::<Config>(&raw) else {
+            return;
+        };
+        if stored.security.trusted_peers.iter().any(|known| known == fingerprint) {
+            return;
+        }
+        stored.security.trusted_peers.push(fingerprint.to_string());
+        if let Ok(serialized) = toml::to_string(&stored) {
+            let _ = std::fs::write(path, serialized);
         }
     }
 }

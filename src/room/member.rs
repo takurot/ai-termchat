@@ -21,4 +21,8 @@ impl Member {
     pub fn ai(id: impl Into<String>, ai_mode: AiMode) -> Self {
         Self { id: id.into(), kind: MemberKind::Ai, ai_mode: Some(ai_mode) }
     }
+
+    pub fn remote_ai(id: impl Into<String>) -> Self {
+        Self { id: id.into(), kind: MemberKind::Ai, ai_mode: None }
+    }
 }

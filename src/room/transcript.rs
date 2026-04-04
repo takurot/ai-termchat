@@ -93,4 +93,9 @@ impl TranscriptWriter {
     pub fn transcript_dir(base: impl AsRef<Path>) -> PathBuf {
         base.as_ref().join("triadchat/transcripts")
     }
+
+    pub fn append_to_base(base: impl AsRef<Path>, entry: &TranscriptEntry) -> Result<()> {
+        let mut writer = Self::open_with_base(base, &entry.room_id)?;
+        writer.append(entry)
+    }
 }
