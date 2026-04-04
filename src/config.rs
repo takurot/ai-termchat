@@ -15,6 +15,7 @@ pub struct Config {
     pub terminal_bell: bool,
     pub language: LanguageConfig,
     pub ai: AiConfig,
+    pub security: SecurityConfig,
     pub theme: Theme,
 }
 
@@ -27,6 +28,7 @@ impl Default for Config {
             terminal_bell: true,
             language: LanguageConfig::default(),
             ai: AiConfig::default(),
+            security: SecurityConfig::default(),
             theme: Theme::default(),
         }
     }
@@ -106,6 +108,18 @@ pub struct AiConfig {
 impl Default for AiConfig {
     fn default() -> Self {
         Self { enabled: true, command: None, timeout_secs: 30 }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    pub default_permission: String,
+    pub trusted_peers: Vec<String>,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self { default_permission: "confirm-required".into(), trusted_peers: Vec::new() }
     }
 }
 

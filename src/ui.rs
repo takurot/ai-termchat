@@ -111,7 +111,12 @@ fn draw_messages_panel(
         })
         .collect::<Vec<_>>();
 
-    let title = if state.ai_thinking { ui_messages.thinking_title } else { "triadchat" };
+    let title = match state.ai_state {
+        crate::state::AiState::Acting => ui_messages.acting_title,
+        crate::state::AiState::Failed(_) => ui_messages.failed_title,
+        _ if state.ai_thinking => ui_messages.thinking_title,
+        _ => "triadchat",
+    };
 
     let messages_panel = Paragraph::new(messages)
         .block(

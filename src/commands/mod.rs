@@ -1,5 +1,7 @@
 pub mod ai_cmd;
+pub mod room_cmd;
 pub mod send_file;
+pub mod skill_cmd;
 pub mod summary_cmd;
 
 use std::collections::HashMap;
@@ -24,6 +26,14 @@ pub enum AppCommand {
     SetAiMode(AiMode),
     SetAiQuiet(bool),
     SetAiFrequency(AiFrequency),
+    RoomCreate { peers: Vec<String>, ai_mode: Option<AiMode> },
+    RoomList,
+    RoomSwitch(String),
+    Peers,
+    Skills,
+    Skill { name: String, args: Vec<String> },
+    RunProposal(usize),
+    Cancel,
     Help,
 }
 

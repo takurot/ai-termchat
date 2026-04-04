@@ -4,9 +4,14 @@ use std::time::Instant;
 use chrono::{DateTime, Local};
 use message_io::network::Endpoint;
 use rgb::RGB8;
+use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
-use crate::message::{AiPayload, StructuredOutput};
+use crate::message::{AiPayload, PeerInfo, StructuredOutput};
+use crate::room::transcript::{TranscriptEntry, TranscriptWriter};
+use crate::room::{Room, RoomEngine};
+use crate::skill::executor::PendingSkillExecution;
+use crate::skill::registry::SkillRegistry;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemMessageType {
@@ -44,6 +49,14 @@ pub enum AiState {
     Acting,
     Disabled,
     Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillProposal {
+    pub id: usize,
+    pub skill_name: String,
+    pub source_peer: Option<String>,
+    pub trusted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,9 +109,16 @@ pub struct State {
     scroll_messages_view: usize,
     input: Vec<char>,
     input_cursor: usize,
+    local_user_name: String,
     lan_users: HashMap<Endpoint, String>,
+    peers: HashMap<Endpoint, PeerInfo>,
     users_id: HashMap<String, usize>,
     last_user_id: usize,
+    room_engine: RoomEngine,
+    skill_registry: SkillRegistry,
+    pending_confirmation: Option<PendingSkillExecution>,
+    pending_skill_proposals: Vec<SkillProposal>,
+    transcript: Option<TranscriptWriter>,
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
@@ -119,9 +139,16 @@ impl Default for State {
             scroll_messages_view: 0,
             input: Vec::new(),
             input_cursor: 0,
+            local_user_name: String::new(),
             lan_users: HashMap::new(),
+            peers: HashMap::new(),
             users_id: HashMap::new(),
             last_user_id: 0,
+            room_engine: RoomEngine::default(),
+            skill_registry: SkillRegistry::default(),
+            pending_confirmation: None,
+            pending_skill_proposals: Vec::new(),
+            transcript: None,
             stop_stream: false,
             windows: HashMap::new(),
             ai_state: AiState::Idle,
@@ -191,8 +218,82 @@ impl State {
         self.lan_users.get(&endpoint)
     }
 
-    pub fn all_user_endpoints(&self) -> impl Iterator<Item = &Endpoint> {
-        self.lan_users.keys()
+    pub fn set_local_user_name(&mut self, user_name: impl Into<String>) {
+        self.local_user_name = user_name.into();
+    }
+
+    pub fn set_skill_registry(&mut self, skill_registry: SkillRegistry) {
+        self.skill_registry = skill_registry;
+    }
+
+    pub fn skill_registry(&self) -> &SkillRegistry {
+        &self.skill_registry
+    }
+
+    pub fn set_transcript_writer(&mut self, transcript: Option<TranscriptWriter>) {
+        self.transcript = transcript;
+    }
+
+    pub fn pending_confirmation(&self) -> Option<&PendingSkillExecution> {
+        self.pending_confirmation.as_ref()
+    }
+
+    pub fn queue_skill_confirmation(&mut self, pending: PendingSkillExecution) {
+        self.pending_confirmation = Some(pending);
+    }
+
+    pub fn take_pending_confirmation(&mut self) -> Option<PendingSkillExecution> {
+        self.pending_confirmation.take()
+    }
+
+    pub fn clear_pending_confirmation(&mut self) {
+        self.pending_confirmation = None;
+    }
+
+    pub fn set_skill_proposals(
+        &mut self,
+        skill_names: &[String],
+        source_peer: Option<String>,
+        trusted: bool,
+    ) {
+        self.pending_skill_proposals = skill_names
+            .iter()
+            .enumerate()
+            .map(|(index, skill_name)| SkillProposal {
+                id: index + 1,
+                skill_name: skill_name.clone(),
+                source_peer: source_peer.clone(),
+                trusted,
+            })
+            .collect();
+    }
+
+    pub fn clear_skill_proposals(&mut self) {
+        self.pending_skill_proposals.clear();
+    }
+
+    pub fn skill_proposals(&self) -> &[SkillProposal] {
+        &self.pending_skill_proposals
+    }
+
+    pub fn find_skill_proposal(&self, proposal_id: usize) -> Option<&SkillProposal> {
+        self.pending_skill_proposals.iter().find(|proposal| proposal.id == proposal_id)
+    }
+
+    pub fn all_user_endpoints(&self) -> Vec<Endpoint> {
+        if let Some(room) = self.room_engine.active_room() {
+            return self
+                .lan_users
+                .iter()
+                .filter_map(|(endpoint, user_name)| {
+                    if user_name == &self.local_user_name {
+                        return None;
+                    }
+                    room.members.iter().any(|member| member.id == *user_name).then_some(*endpoint)
+                })
+                .collect();
+        }
+        self.lan_users.keys().copied().collect()
     }
 
     pub fn users_id(&self) -> &HashMap<String, usize> {
@@ -200,7 +301,15 @@ impl State {
     }
 
     pub fn connected_user(&mut self, endpoint: Endpoint, user: &str) {
+        if self.lan_users.get(&endpoint).is_some_and(|known| known == user) {
+            return;
+        }
         self.lan_users.insert(endpoint, user.into());
+        self.peers.entry(endpoint).or_insert_with(|| PeerInfo {
+            user_name: user.into(),
+            server_port: 0,
+            node_version: "unknown".into(),
+        });
         if !self.users_id.contains_key(user) {
             self.users_id.insert(user.into(), self.last_user_id);
             self.last_user_id += 1;
@@ -210,8 +319,52 @@ impl State {
 
     pub fn disconnected_user(&mut self, endpoint: Endpoint) {
         if let Some(user) = self.lan_users.remove(&endpoint) {
+            self.peers.remove(&endpoint);
             self.add_message(ChatMessage::new(user, MessageType::Disconnection));
         }
+    }
+
+    pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {
+        self.peers.insert(endpoint, peer);
+    }
+
+    pub fn peer_fingerprint(&self, endpoint: Endpoint) -> Option<String> {
+        self.peers.get(&endpoint).map(peer_fingerprint)
+    }
+
+    pub fn peer_names(&self) -> Vec<String> {
+        let mut peers = self.peers.values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>();
+        peers.sort();
+        peers
+    }
+
+    pub fn peers(&self) -> &HashMap<Endpoint, PeerInfo> {
+        &self.peers
+    }
+
+    pub fn create_room(&mut self, peer_ids: &[String], ai_mode: Option<AiMode>) -> Room {
+        let refs = peer_ids.iter().map(String::as_str).collect::<Vec<_>>();
+        self.room_engine.create_room(&self.local_user_name, &refs, ai_mode)
+    }
+
+    pub fn accept_room(&mut self, room_id: &str, member_ids: &[String]) -> Room {
+        self.room_engine.create_remote_room(room_id, member_ids)
+    }
+
+    pub fn room_ids(&self) -> Vec<String> {
+        self.room_engine.rooms().iter().map(|room| room.id.clone()).collect()
+    }
+
+    pub fn rooms(&self) -> &[Room] {
+        self.room_engine.rooms()
+    }
+
+    pub fn active_room_id(&self) -> Option<&str> {
+        self.room_engine.active_room_id()
+    }
+
+    pub fn switch_room(&mut self, room_id: &str) -> anyhow::Result<()> {
+        self.room_engine.switch_active(room_id)
     }
 
     pub fn input_write(&mut self, character: char) {
@@ -270,6 +423,17 @@ impl State {
     }
 
     pub fn add_message(&mut self, message: ChatMessage) {
+        let entry = self.default_transcript_entry(&message);
+        self.write_transcript_entry(entry);
+        self.messages.push(message);
+    }
+
+    pub fn add_message_with_transcript(
+        &mut self,
+        message: ChatMessage,
+        transcript_entry: TranscriptEntry,
+    ) {
+        self.write_transcript_entry(transcript_entry);
         self.messages.push(message);
     }
 
@@ -378,4 +542,44 @@ impl State {
         self.ai_thinking = false;
         self.abort_handle = None;
     }
+
+    fn write_transcript_entry(&mut self, entry: TranscriptEntry) {
+        if let Some(transcript) = self.transcript.as_mut() {
+            let _ = transcript.append(&entry);
+        }
+    }
+
+    fn default_transcript_entry(&self, message: &ChatMessage) -> TranscriptEntry {
+        let room_id = self
+            .active_room_id()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("solo-{}", self.local_user_name));
+        let sender_type = if message.user.starts_with("ops-ai") {
+            "ai"
+        } else if message.user.starts_with("triadchat:") {
+            "system"
+        } else {
+            "human"
+        };
+        let kind = match message.message_type {
+            MessageType::AiText(_) => "ai",
+            MessageType::System(_, _) => "system",
+            MessageType::Progress(_) => "progress",
+            _ => "chat",
+        };
+        TranscriptEntry::chat(
+            room_id,
+            message.user.clone(),
+            sender_type,
+            kind,
+            message.rendered_text(),
+        )
+    }
+}
+
+pub fn peer_fingerprint(peer: &PeerInfo) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(peer.user_name.as_bytes());
+    hasher.update(peer.node_version.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
