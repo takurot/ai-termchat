@@ -139,6 +139,7 @@ pub struct State {
     pub ai_avatar: String,
     /// Global avatar size hint.
     pub avatar_size: AvatarSize,
+    room_list_scroll: usize,
 }
 
 impl Default for State {
@@ -173,6 +174,7 @@ impl Default for State {
             user_avatar: "human_default".into(),
             ai_avatar: "ai_default".into(),
             avatar_size: AvatarSize::Normal,
+            room_list_scroll: 0,
         }
     }
 }
@@ -444,6 +446,26 @@ impl State {
             ScrollMovement::Down => self.scroll_messages_view += 1,
             ScrollMovement::Start => self.scroll_messages_view += 0,
         }
+    }
+
+    pub fn room_list_scroll(&self) -> usize {
+        self.room_list_scroll
+    }
+
+    pub fn scroll_room_list(&mut self, movement: ScrollMovement) {
+        match movement {
+            ScrollMovement::Up => {
+                self.room_list_scroll = self.room_list_scroll.saturating_sub(1);
+            }
+            ScrollMovement::Down => {
+                self.room_list_scroll = self.room_list_scroll.saturating_add(1);
+            }
+            ScrollMovement::Start => {}
+        }
+    }
+
+    pub fn reset_room_list_scroll(&mut self) {
+        self.room_list_scroll = 0;
     }
 
     pub fn reset_input(&mut self) -> Option<String> {

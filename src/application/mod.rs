@@ -391,6 +391,12 @@ impl<'a> Application<'a> {
                 KeyCode::Right => self.state.input_move_cursor(CursorMovement::Right),
                 KeyCode::Home => self.state.input_move_cursor(CursorMovement::Start),
                 KeyCode::End => self.state.input_move_cursor(CursorMovement::End),
+                KeyCode::Up if modifiers.contains(KeyModifiers::ALT) => {
+                    self.state.scroll_room_list(ScrollMovement::Up);
+                }
+                KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
+                    self.state.scroll_room_list(ScrollMovement::Down);
+                }
                 KeyCode::Up => self.state.messages_scroll(ScrollMovement::Up),
                 KeyCode::Down => self.state.messages_scroll(ScrollMovement::Down),
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
