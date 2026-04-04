@@ -1,12 +1,19 @@
 use tui::layout::Constraint;
 
-/// Returns the 3-pane horizontal constraints: [peers(18), chat(min), status(22)].
-pub fn three_pane_constraints() -> Vec<Constraint> {
-    vec![Constraint::Length(18), Constraint::Min(0), Constraint::Length(22)]
+/// Horizontal split: [peers(18), right(min)].
+/// Peers spans the full height of the upper area (above input).
+pub fn left_right_constraints() -> Vec<Constraint> {
+    vec![Constraint::Length(18), Constraint::Min(0)]
 }
 
-/// Returns `true` when the terminal is wide enough to show side panels.
-/// Below 80 columns the layout collapses to a single chat pane.
+/// Vertical split for the right column: [chat(min), status(11)].
+/// ops-ai panel sits below chat at full right-column width.
+pub fn right_column_constraints() -> Vec<Constraint> {
+    vec![Constraint::Min(0), Constraint::Length(11)]
+}
+
+/// Returns `true` when the terminal is wide enough to show the peers side panel.
+/// Below 80 columns the layout collapses to chat-above / ops-ai-below only.
 pub fn should_show_side_panels(cols: u16) -> bool {
     cols >= 80
 }
