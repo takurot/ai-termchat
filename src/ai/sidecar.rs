@@ -17,7 +17,7 @@ impl SidecarAdapter {
     pub fn new(workspace: &Path, config: &AiConfig) -> Result<Self> {
         let timeout = Duration::from_secs(config.timeout_secs.max(1));
         let command = if let Some(command) = &config.command {
-            PathBuf::from(command)
+            resolve_command(command)?
         } else {
             which::which("claude").context("claude command was not found in PATH")?
         };
@@ -65,4 +65,12 @@ impl SidecarAdapter {
 
 fn truncate_prompt(prompt: &str, max_chars: usize) -> String {
     prompt.chars().take(max_chars).collect()
+}
+
+fn resolve_command(command: &str) -> Result<PathBuf> {
+    let path = PathBuf::from(command);
+    if path.exists() || path.is_absolute() || command.contains(std::path::MAIN_SEPARATOR) {
+        return Ok(path);
+    }
+    which::which(command).with_context(|| format!("{command} command was not found in PATH"))
 }

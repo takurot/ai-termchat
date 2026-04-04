@@ -52,3 +52,81 @@ fn summary_commands_and_auto_intervention_work_end_to_end() {
     assert!(rendered.contains("auth を service に切り出す"));
     assert!(rendered.contains("takuro"));
 }
+
+#[test]
+fn clerk_mode_intervenes_before_human_streak_limit_when_task_marker_exists() {
+    let dir = TempDir::new().unwrap();
+    let script = write_script(
+        &dir,
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: 自動介入しました\nSTRUCTURED: {\"todos\":[{\"text\":\"auth の設計\",\"assignee\":\"takuro\"}],\"decisions\":[],\"skill_suggestions\":[]}\n'",
+    );
+
+    let mut config = Config::default();
+    config.ai.command = Some(script.display().to_string());
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("takuro が auth の設計を書く").unwrap();
+
+    let rendered = app
+        .state()
+        .messages()
+        .iter()
+        .filter_map(|message| match &message.message_type {
+            MessageType::AiText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("自動介入しました"));
+}
+
+#[test]
+fn moderator_mode_does_not_intervene_for_plain_task_language() {
+    let dir = TempDir::new().unwrap();
+    let script = write_script(
+        &dir,
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: moderator intervened\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\n'",
+    );
+
+    let mut config = Config::default();
+    config.ai.command = Some(script.display().to_string());
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/ai mode moderator").unwrap();
+    app.handle_input_line_for_test("takuro が auth の設計を書く").unwrap();
+    app.handle_input_line_for_test("tanaka が回帰確認を書く").unwrap();
+    app.handle_input_line_for_test("sato が README を直す").unwrap();
+
+    let ai_messages = app
+        .state()
+        .messages()
+        .iter()
+        .filter(|message| matches!(message.message_type, MessageType::AiText(_)))
+        .count();
+
+    assert_eq!(ai_messages, 0);
+}
+
+#[test]
+fn slash_commands_are_not_included_in_transcript() {
+    let dir = TempDir::new().unwrap();
+    let script = write_script(
+        &dir,
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: noop\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\n'",
+    );
+
+    let mut config = Config::default();
+    config.ai.command = Some(script.display().to_string());
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("auth serviceに切り出したい").unwrap();
+    app.handle_input_line_for_test("/summary").unwrap();
+
+    let transcript = app.state().transcript(10);
+    assert!(transcript.contains("auth serviceに切り出したい"));
+    assert!(!transcript.contains("/summary"));
+}

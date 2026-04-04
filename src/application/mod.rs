@@ -334,15 +334,19 @@ impl<'a> Application<'a> {
     }
 
     fn process_input_line(&mut self, input: String) -> Result<()> {
-        self.state.add_message(ChatMessage::new(
-            format!("{} (me)", self.config.user_name),
-            MessageType::Text(input.clone()),
-        ));
-
         match self.commands.find_command(&input).transpose() {
             Ok(Some(ParsedCommand::Action(action))) => self.process_action(action),
             Ok(Some(ParsedCommand::App(command))) => self.process_app_command(command),
             Ok(None) => {
+                if input.starts_with(CommandManager::COMMAND_PREFIX) {
+                    self.state.add_system_error_message(format!("Unknown command: {}", input));
+                    return Ok(());
+                }
+
+                self.state.add_message(ChatMessage::new(
+                    format!("{} (me)", self.config.user_name),
+                    MessageType::Text(input.clone()),
+                ));
                 for endpoint in self.state.all_user_endpoints() {
                     self.node.network().send(
                         *endpoint,
@@ -352,6 +356,7 @@ impl<'a> Application<'a> {
                 self.state.human_streak += 1;
                 let trigger = TriggerConfig::from_frequency(self.state.ai_frequency.clone());
                 if should_intervene(
+                    &input,
                     self.state.ai_mode.clone(),
                     &trigger,
                     self.state.ai_thinking,
