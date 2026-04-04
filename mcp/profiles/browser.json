@@ -1,0 +1,8 @@
+{
+  "id": "browser",
+  "description": "Browser automation and interactive UI investigation.",
+  "default_enabled": false,
+  "server_ids": [
+    "playwright"
+  ]
+}

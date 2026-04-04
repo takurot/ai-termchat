@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "default_profile": "core",
+  "risk_levels": {
+    "low": "Narrow scope and safe for most engineering tasks.",
+    "medium": "Broader external access or automation that should be enabled intentionally.",
+    "high": "Expands the trust boundary through localhost access, broad filesystem reach, or remote package execution."
+  },
+  "servers": [
+    {
+      "id": "github",
+      "description": "GitHub repository, PR, issue, and code search workflows.",
+      "transport": "stdio",
+      "command": "github-mcp-server",
+      "args": [],
+      "env": [
+        "GITHUB_TOKEN"
+      ],
+      "risk_level": "low",
+      "requires_secrets": true,
+      "default_enabled": true,
+      "profiles": [
+        "core"
+      ],
+      "notes": "Default baseline for repository context. Scope is limited to connected GitHub data."
+    },
+    {
+      "id": "context7",
+      "description": "Primary-source library and framework documentation retrieval.",
+      "transport": "stdio",
+      "command": "context7-mcp",
+      "args": [],
+      "env": [],
+      "risk_level": "low",
+      "requires_secrets": false,
+      "default_enabled": true,
+      "profiles": [
+        "core",
+        "research"
+      ],
+      "notes": "Useful for official technical docs without broad browsing."
+    },
+    {
+      "id": "memory",
+      "description": "Structured local memory graph for reusable project observations.",
+      "transport": "stdio",
+      "command": "memory-mcp",
+      "args": [],
+      "env": [],
+      "risk_level": "low",
+      "requires_secrets": false,
+      "default_enabled": true,
+      "profiles": [
+        "core"
+      ],
+      "notes": "Local project memory only. Keep data hygiene in mind when storing observations."
+    },
+    {
+      "id": "sequential-thinking",
+      "description": "Structured reasoning helper for complex planning and review tasks.",
+      "transport": "stdio",
+      "command": "sequential-thinking-mcp",
+      "args": [],
+      "env": [],
+      "risk_level": "low",
+      "requires_secrets": false,
+      "default_enabled": true,
+      "profiles": [
+        "core"
+      ],
+      "notes": "No external side effects. Safe baseline analysis support."
+    },
+    {
+      "id": "exa",
+      "description": "External neural web and code search for current information.",
+      "transport": "stdio",
+      "command": "exa-mcp-server",
+      "args": [],
+      "env": [
+        "EXA_API_KEY"
+      ],
+      "risk_level": "medium",
+      "requires_secrets": true,
+      "default_enabled": false,
+      "profiles": [
+        "research"
+      ],
+      "notes": "External browsing and search should be explicitly enabled."
+    },
+    {
+      "id": "playwright",
+      "description": "Browser automation, snapshots, screenshots, and UI flow inspection.",
+      "transport": "stdio",
+      "command": "playwright-mcp",
+      "args": [],
+      "env": [],
+      "risk_level": "medium",
+      "requires_secrets": false,
+      "default_enabled": false,
+      "profiles": [
+        "browser"
+      ],
+      "notes": "Automates a real browser. Useful, but not part of the default baseline."
+    },
+    {
+      "id": "semgrep",
+      "description": "Security-focused static analysis for common application vulnerabilities.",
+      "transport": "stdio",
+      "command": "semgrep-mcp",
+      "args": [],
+      "env": [
+        "SEMGREP_APP_TOKEN"
+      ],
+      "risk_level": "medium",
+      "requires_secrets": true,
+      "default_enabled": false,
+      "profiles": [
+        "security"
+      ],
+      "notes": "Security scanner with optional cloud-backed rules. Enable only for review flows that need it."
+    },
+    {
+      "id": "osv",
+      "description": "Dependency vulnerability lookups against the OSV database.",
+      "transport": "stdio",
+      "command": "osv-mcp",
+      "args": [],
+      "env": [],
+      "risk_level": "medium",
+      "requires_secrets": false,
+      "default_enabled": false,
+      "profiles": [
+        "security"
+      ],
+      "notes": "Useful for supply-chain review. External lookup, but read-only."
+    },
+    {
+      "id": "filesystem-local",
+      "description": "Broad local filesystem access beyond the current workspace.",
+      "transport": "stdio",
+      "command": "filesystem-mcp",
+      "args": [
+        "--root",
+        "/"
+      ],
+      "env": [],
+      "risk_level": "high",
+      "requires_secrets": false,
+      "default_enabled": false,
+      "profiles": [
+        "unsafe-local"
+      ],
+      "notes": "Broad host access materially expands the trust boundary and must stay opt-in."
+    },
+    {
+      "id": "localhost-api",
+      "description": "Bridge to developer-run localhost services and private APIs.",
+      "transport": "http",
+      "url": "http://127.0.0.1:0",
+      "args": [],
+      "env": [],
+      "risk_level": "high",
+      "requires_secrets": false,
+      "default_enabled": false,
+      "profiles": [
+        "unsafe-local"
+      ],
+      "notes": "Placeholder for localhost integrations. Exact endpoint must be user-supplied at install time."
+    },
+    {
+      "id": "npm-exec-tooling",
+      "description": "MCP servers executed through ad hoc package manager download flows.",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "<package>@latest"
+      ],
+      "env": [],
+      "risk_level": "high",
+      "requires_secrets": false,
+      "default_enabled": false,
+      "profiles": [
+        "unsafe-local"
+      ],
+      "notes": "Remote package execution is cataloged for transparency but prohibited from safe defaults."
+    }
+  ]
+}

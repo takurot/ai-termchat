@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-checkpoint-reminder.js\""
+          }
+        ],
+        "description": "Reminder to create a checkpoint before long-running build, test, or dev workflows"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-mcp-health-reminder.js\""
+          }
+        ],
+        "description": "Reminder to verify MCP health before unsafe-local or risky MCP workflows"
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-validate-configs-reminder.js\""
+          }
+        ],
+        "description": "Reminder to validate configs after manifest, MCP, or runtime-config edits"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-edit-format-reminder.js\""
+          }
+        ],
+        "description": "Reminder to format code or run the project check after edits"
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/post-edit-typecheck-reminder.js\""
+          }
+        ],
+        "description": "Reminder to run TypeScript typecheck after editing TS or TSX files"
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-compact-reminder.js\""
+          }
+        ],
+        "description": "Reminder to preserve durable state before compaction"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "core",
+  "description": "Lean default engineering baseline with low-risk, broadly useful MCP servers only.",
+  "default_enabled": true,
+  "server_ids": [
+    "github",
+    "context7",
+    "memory",
+    "sequential-thinking"
+  ]
+}
