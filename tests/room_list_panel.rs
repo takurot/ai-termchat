@@ -160,3 +160,21 @@ fn left_column_rooms_scales_for_tall_terminals() {
     let c = left_column_constraints(50);
     assert_eq!(c[1], Constraint::Length(50 * 2 / 5));
 }
+
+#[test]
+fn left_column_rooms_clamped_for_very_short_terminals() {
+    use tui::layout::Constraint;
+    use triadchat::ui::layout::left_column_constraints;
+    // height=4 is less than the 8-row floor — must not request more than available
+    let c = left_column_constraints(4);
+    assert_eq!(c[1], Constraint::Length(4));
+}
+
+#[test]
+fn scroll_past_content_shows_placeholder() {
+    let rooms = vec![make_room("room-1", &["alice"], None)];
+    // 1 room × 2 lines; scroll=99 is far past the end
+    let lines = build_room_lines(&rooms, None, 99);
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains("no rooms"), "got: {:?}", lines[0]);
+}

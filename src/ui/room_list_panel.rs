@@ -61,7 +61,12 @@ pub fn build_room_lines(rooms: &[Room], active_id: Option<&str>, scroll: usize) 
         lines.push(format!("  {}", member_str));
     }
 
-    lines.into_iter().skip(scroll).collect()
+    let scrolled: Vec<String> = lines.into_iter().skip(scroll).collect();
+    if scrolled.is_empty() {
+        vec!["  (no rooms)".to_string()]
+    } else {
+        scrolled
+    }
 }
 
 pub fn draw_room_list_panel(

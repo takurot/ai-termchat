@@ -455,11 +455,11 @@ impl State {
     pub fn scroll_room_list(&mut self, movement: ScrollMovement) {
         match movement {
             ScrollMovement::Up => {
-                if self.room_list_scroll > 0 {
-                    self.room_list_scroll -= 1;
-                }
+                self.room_list_scroll = self.room_list_scroll.saturating_sub(1);
             }
-            ScrollMovement::Down => self.room_list_scroll += 1,
+            ScrollMovement::Down => {
+                self.room_list_scroll = self.room_list_scroll.saturating_add(1);
+            }
             ScrollMovement::Start => {}
         }
     }
