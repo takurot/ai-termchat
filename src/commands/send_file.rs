@@ -82,7 +82,7 @@ impl Action for SendFile {
         let net_message = NetMessage::UserData(self.file_name.clone(), chunk);
         let message = self.encoder.encode(net_message);
         for endpoint in state.all_user_endpoints() {
-            network.send(*endpoint, message);
+            network.send(endpoint, message);
         }
 
         processing
