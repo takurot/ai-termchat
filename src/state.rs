@@ -6,7 +6,8 @@ use message_io::network::Endpoint;
 use rgb::RGB8;
 use tokio::task::AbortHandle;
 
-use crate::message::{AiPayload, StructuredOutput};
+use crate::message::{AiPayload, PeerInfo, StructuredOutput};
+use crate::room::{Room, RoomEngine};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemMessageType {
@@ -96,9 +97,12 @@ pub struct State {
     scroll_messages_view: usize,
     input: Vec<char>,
     input_cursor: usize,
+    local_user_name: String,
     lan_users: HashMap<Endpoint, String>,
+    peers: HashMap<Endpoint, PeerInfo>,
     users_id: HashMap<String, usize>,
     last_user_id: usize,
+    room_engine: RoomEngine,
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
@@ -119,9 +123,12 @@ impl Default for State {
             scroll_messages_view: 0,
             input: Vec::new(),
             input_cursor: 0,
+            local_user_name: String::new(),
             lan_users: HashMap::new(),
+            peers: HashMap::new(),
             users_id: HashMap::new(),
             last_user_id: 0,
+            room_engine: RoomEngine::default(),
             stop_stream: false,
             windows: HashMap::new(),
             ai_state: AiState::Idle,
@@ -191,8 +198,27 @@ impl State {
         self.lan_users.get(&endpoint)
     }
 
-    pub fn all_user_endpoints(&self) -> impl Iterator<Item = &Endpoint> {
-        self.lan_users.keys()
+    pub fn set_local_user_name(&mut self, user_name: impl Into<String>) {
+        self.local_user_name = user_name.into();
+    }
+
+    pub fn all_user_endpoints(&self) -> Vec<Endpoint> {
+        if let Some(room) = self.room_engine.active_room() {
+            return self
+                .lan_users
+                .iter()
+                .filter_map(|(endpoint, user_name)| {
+                    if user_name == &self.local_user_name {
+                        return None;
+                    }
+                    room.members
+                        .iter()
+                        .any(|member| member.id == *user_name)
+                        .then_some(*endpoint)
+                })
+                .collect();
+        }
+        self.lan_users.keys().copied().collect()
     }
 
     pub fn users_id(&self) -> &HashMap<String, usize> {
@@ -201,6 +227,11 @@ impl State {
 
     pub fn connected_user(&mut self, endpoint: Endpoint, user: &str) {
         self.lan_users.insert(endpoint, user.into());
+        self.peers.entry(endpoint).or_insert_with(|| PeerInfo {
+            user_name: user.into(),
+            server_port: 0,
+            node_version: "unknown".into(),
+        });
         if !self.users_id.contains_key(user) {
             self.users_id.insert(user.into(), self.last_user_id);
             self.last_user_id += 1;
@@ -210,8 +241,52 @@ impl State {
 
     pub fn disconnected_user(&mut self, endpoint: Endpoint) {
         if let Some(user) = self.lan_users.remove(&endpoint) {
+            self.peers.remove(&endpoint);
             self.add_message(ChatMessage::new(user, MessageType::Disconnection));
         }
+    }
+
+    pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {
+        self.peers.insert(endpoint, peer);
+    }
+
+    pub fn peer_names(&self) -> Vec<String> {
+        let mut peers = self
+            .peers
+            .values()
+            .map(|peer| peer.user_name.clone())
+            .collect::<Vec<_>>();
+        peers.sort();
+        peers
+    }
+
+    pub fn peers(&self) -> &HashMap<Endpoint, PeerInfo> {
+        &self.peers
+    }
+
+    pub fn create_room(&mut self, peer_ids: &[String], ai_mode: Option<AiMode>) -> Room {
+        let refs = peer_ids.iter().map(String::as_str).collect::<Vec<_>>();
+        self.room_engine.create_room(&self.local_user_name, &refs, ai_mode)
+    }
+
+    pub fn accept_room(&mut self, room_id: &str, member_ids: &[String]) -> Room {
+        self.room_engine.create_remote_room(room_id, member_ids)
+    }
+
+    pub fn room_ids(&self) -> Vec<String> {
+        self.room_engine.rooms().iter().map(|room| room.id.clone()).collect()
+    }
+
+    pub fn rooms(&self) -> &[Room] {
+        self.room_engine.rooms()
+    }
+
+    pub fn active_room_id(&self) -> Option<&str> {
+        self.room_engine.active_room_id()
+    }
+
+    pub fn switch_room(&mut self, room_id: &str) -> anyhow::Result<()> {
+        self.room_engine.switch_active(room_id)
     }
 
     pub fn input_write(&mut self, character: char) {

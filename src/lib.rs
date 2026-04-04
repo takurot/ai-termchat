@@ -1,5 +1,6 @@
 pub mod application;
 pub mod ai;
+pub mod room;
 pub mod state;
 mod terminal_events;
 pub mod message;

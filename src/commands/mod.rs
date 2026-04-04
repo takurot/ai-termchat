@@ -1,4 +1,5 @@
 pub mod ai_cmd;
+pub mod room_cmd;
 pub mod send_file;
 pub mod summary_cmd;
 
@@ -24,6 +25,10 @@ pub enum AppCommand {
     SetAiMode(AiMode),
     SetAiQuiet(bool),
     SetAiFrequency(AiFrequency),
+    RoomCreate { peers: Vec<String>, ai_mode: Option<AiMode> },
+    RoomList,
+    RoomSwitch(String),
+    Peers,
     Help,
 }
 

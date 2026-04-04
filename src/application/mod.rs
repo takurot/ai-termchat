@@ -13,12 +13,13 @@ use crate::action::{Action, Processing};
 use crate::ai::trigger::{should_intervene, TriggerConfig};
 use crate::ai::{AiMediator, AiTask};
 use crate::commands::ai_cmd::AiCommand;
+use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
 use crate::commands::summary_cmd::SummaryCommand;
 use crate::commands::{AppCommand, CommandManager, ParsedCommand, SummaryCommandKind};
 use crate::config::Config;
 use crate::encoder::{self, Encoder};
-use crate::message::{AiIntent, AiPayload, Chunk, NetMessage};
+use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo};
 use crate::renderer::Renderer;
 use crate::state::{
     AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State, Window,
@@ -47,6 +48,7 @@ pub struct Application<'a> {
     runtime: tokio::runtime::Runtime,
     ai_mediator: Option<Arc<AiMediator>>,
     test_mode: bool,
+    local_server_port: Option<u16>,
 }
 
 impl<'a> Application<'a> {
@@ -74,6 +76,8 @@ impl<'a> Application<'a> {
         let commands = CommandManager::default()
             .with(SendFileCommand)
             .with(AiCommand)
+            .with(RoomCommand)
+            .with(PeersCommand)
             .with(SummaryCommand::summary())
             .with(SummaryCommand::todos())
             .with(SummaryCommand::decisions())
@@ -81,6 +85,7 @@ impl<'a> Application<'a> {
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut state = State::default();
+        state.set_local_user_name(config.user_name.clone());
         state.ui_language = config.language.ui.clone();
 
         let workspace = std::env::current_dir()?;
@@ -110,6 +115,7 @@ impl<'a> Application<'a> {
             runtime,
             ai_mediator,
             test_mode: !collect_terminal_events,
+            local_server_port: None,
         })
     }
 
@@ -120,14 +126,7 @@ impl<'a> Application<'a> {
             renderer.render(&self.state, self.config)?;
         }
 
-        let server_addr = ("0.0.0.0", self.config.tcp_server_port);
-        let (_, server_addr) = self.node.network().listen(Transport::FramedTcp, server_addr)?;
-        self.node.network().listen(Transport::Udp, self.config.discovery_addr)?;
-
-        let (discovery_endpoint, _) =
-            self.node.network().connect_sync(Transport::Udp, self.config.discovery_addr)?;
-        let message = NetMessage::HelloLan(self.config.user_name.clone(), server_addr.port());
-        self.node.network().send(discovery_endpoint, self.encoder.encode(message));
+        self.start_network()?;
 
         loop {
             if !self.process_next_event()? {
@@ -139,45 +138,45 @@ impl<'a> Application<'a> {
         }
     }
 
-    pub fn process_next_event_for_test(&mut self) -> Result<()> {
-        let event = self
-            .receiver
-            .receive_timeout(std::time::Duration::from_secs(2))
-            .ok_or_else(|| anyhow::anyhow!("timed out waiting for application event"))?;
+    fn start_network(&mut self) -> Result<()> {
+        let server_addr = ("0.0.0.0", self.config.tcp_server_port);
+        let (_, server_addr) = self.node.network().listen(Transport::FramedTcp, server_addr)?;
+        self.local_server_port = Some(server_addr.port());
+        self.node.network().listen(Transport::Udp, self.config.discovery_addr)?;
 
-        match event {
-            NodeEvent::Network(net_event) => match net_event {
-                NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
-                NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
-                    Some(net_message) => self.process_network_message(endpoint, net_message),
-                    None => return Err(anyhow::anyhow!("unknown message received")),
-                },
-                NetEvent::Disconnected(endpoint) => {
-                    self.state.disconnected_user(endpoint);
-                    self.state.windows.remove(&endpoint);
-                    self.righ_the_bell();
-                }
-            },
-            NodeEvent::Signal(signal) => match signal {
-                Signal::Terminal(term_event) => self.process_terminal_event(term_event)?,
-                Signal::Action(action) => self.process_action(action),
-                Signal::AiResponse(payload) => self.process_ai_response(payload),
-                Signal::AiFailed(error) => self.process_ai_failure(error),
-                Signal::SkillDone(output) => {
-                    self.state.add_system_info_message(format!("skill finished: {}", output));
-                }
-                Signal::Close(error) => {
-                    if let Some(error) = error {
-                        return Err(error);
-                    }
-                }
-            },
-        }
+        let (discovery_endpoint, _) =
+            self.node.network().connect_sync(Transport::Udp, self.config.discovery_addr)?;
+        let message = NetMessage::HelloLan(self.config.user_name.clone(), server_addr.port());
+        self.node.network().send(discovery_endpoint, self.encoder.encode(message));
         Ok(())
     }
 
+    pub fn start_network_for_test(&mut self) -> Result<()> {
+        self.start_network()
+    }
+
+    pub fn process_next_event_for_test(&mut self) -> Result<()> {
+        self.process_next_event_with_timeout_for_test(std::time::Duration::from_secs(2))
+    }
+
+    pub fn process_next_event_with_timeout_for_test(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<()> {
+        let event = self
+            .receiver
+            .receive_timeout(timeout)
+            .ok_or_else(|| anyhow::anyhow!("timed out waiting for application event"))?;
+        self.process_node_event(event).map(|_| ())
+    }
+
     fn process_next_event(&mut self) -> Result<bool> {
-        match self.receiver.receive() {
+        let event = self.receiver.receive();
+        self.process_node_event(event)
+    }
+
+    fn process_node_event(&mut self, event: NodeEvent<Signal>) -> Result<bool> {
+        match event {
             NodeEvent::Network(net_event) => match net_event {
                 NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
                 NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
@@ -220,6 +219,7 @@ impl<'a> Application<'a> {
                             self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
                         let message = NetMessage::HelloUser(self.config.user_name.clone());
                         self.node.network().send(user_endpoint, self.encoder.encode(message));
+                        self.send_peer_info(user_endpoint);
                         self.state.connected_user(user_endpoint, &user);
                         Ok(())
                     };
@@ -228,6 +228,7 @@ impl<'a> Application<'a> {
             }
             NetMessage::HelloUser(user) => {
                 self.state.connected_user(endpoint, &user);
+                self.send_peer_info(endpoint);
                 self.righ_the_bell();
             }
             NetMessage::UserMessage(content) => {
@@ -289,11 +290,25 @@ impl<'a> Application<'a> {
                 }
             },
             NetMessage::AiMessage(payload) => self.process_ai_response(payload),
-            NetMessage::PeerInfo(_) | NetMessage::RoomCreate(_, _) | NetMessage::RoomJoin(_) => {}
+            NetMessage::PeerInfo(peer) => self.state.record_peer(endpoint, peer),
+            NetMessage::RoomCreate(room_id, member_ids) => {
+                if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
+                    let room = self.state.accept_room(&room_id, &member_ids);
+                    self.state.add_system_info_message(format!("joined room {}", room.id));
+                    self.node.network().send(
+                        endpoint,
+                        self.encoder.encode(NetMessage::RoomJoin(room.id.clone())),
+                    );
+                }
+            }
+            NetMessage::RoomJoin(room_id) => {
+                let _ = self.state.switch_room(&room_id);
+                self.state.add_system_info_message(format!("room {} is ready", room_id));
+            }
             NetMessage::SkillResult(payload) => {
                 self.state.add_system_info_message(format!(
                     "skill '{}' finished: {}",
-                    payload.name, payload.output
+                    payload.skill_name, payload.summary
                 ));
             }
         }
@@ -349,7 +364,7 @@ impl<'a> Application<'a> {
                 ));
                 for endpoint in self.state.all_user_endpoints() {
                     self.node.network().send(
-                        *endpoint,
+                        endpoint,
                         self.encoder.encode(NetMessage::UserMessage(input.clone())),
                     );
                 }
@@ -402,9 +417,52 @@ impl<'a> Application<'a> {
                     self.state.ai_frequency
                 ));
             }
+            AppCommand::RoomCreate { peers, ai_mode } => {
+                if let Some(missing_peer) = peers
+                    .iter()
+                    .find(|peer| !self.state.peer_names().iter().any(|known| known == *peer))
+                {
+                    self.state.add_system_error_message(format!("unknown peer: {}", missing_peer));
+                    return;
+                }
+
+                let room = self.state.create_room(&peers, ai_mode);
+                let member_ids = room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
+                for endpoint in self.state.all_user_endpoints() {
+                    if let Some(user_name) = self.state.user_name(endpoint) {
+                        if peers.iter().any(|peer| peer == user_name) {
+                            self.node.network().send(
+                                endpoint,
+                                self.encoder.encode(NetMessage::RoomCreate(room.id.clone(), member_ids.clone())),
+                            );
+                        }
+                    }
+                }
+                self.state.add_system_info_message(format!("created room {}", room.id));
+            }
+            AppCommand::RoomList => {
+                let room_ids = self.state.room_ids();
+                if room_ids.is_empty() {
+                    self.state.add_system_info_message("no rooms".into());
+                } else {
+                    self.state.add_system_info_message(room_ids.join(", "));
+                }
+            }
+            AppCommand::RoomSwitch(room_id) => match self.state.switch_room(&room_id) {
+                Ok(()) => self.state.add_system_info_message(format!("switched to {}", room_id)),
+                Err(error) => self.state.add_system_error_message(error.to_string()),
+            },
+            AppCommand::Peers => {
+                let peers = self.state.peer_names();
+                if peers.is_empty() {
+                    self.state.add_system_info_message("no peers discovered".into());
+                } else {
+                    self.state.add_system_info_message(peers.join(", "));
+                }
+            }
             AppCommand::Help => {
                 self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high>".into(),
+                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers".into(),
                 );
             }
         }
@@ -493,6 +551,22 @@ impl<'a> Application<'a> {
         if self.config.terminal_bell {
             print!("\x07");
         }
+    }
+
+    fn send_peer_info(&self, endpoint: Endpoint) {
+        let Some(server_port) = self.local_server_port else {
+            return;
+        };
+
+        let peer = PeerInfo {
+            user_name: self.config.user_name.clone(),
+            server_port,
+            node_version: env!("CARGO_PKG_VERSION").into(),
+        };
+        let mut encoder = Encoder::new();
+        self.node
+            .network()
+            .send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
     }
 }
 
