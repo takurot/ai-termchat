@@ -8,6 +8,7 @@ use rgb::RGB8;
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
+use crate::avatar::AvatarSize;
 use crate::message::{AiPayload, PeerInfo, StructuredOutput};
 use crate::room::transcript::{TranscriptEntry, TranscriptWriter};
 use crate::room::{Room, RoomEngine};
@@ -132,6 +133,12 @@ pub struct State {
     pub ai_frequency: AiFrequency,
     pub ui_language: String,
     pub last_structured_output: Option<StructuredOutput>,
+    /// Preset name for the local user's avatar (default: `"human_default"`).
+    pub user_avatar: String,
+    /// Preset name for the AI avatar (default: `"ai_default"`).
+    pub ai_avatar: String,
+    /// Global avatar size hint.
+    pub avatar_size: AvatarSize,
 }
 
 impl Default for State {
@@ -163,6 +170,9 @@ impl Default for State {
             ai_frequency: AiFrequency::Normal,
             ui_language: "ja".into(),
             last_structured_output: None,
+            user_avatar: "human_default".into(),
+            ai_avatar: "ai_default".into(),
+            avatar_size: AvatarSize::Normal,
         }
     }
 }
@@ -219,6 +229,10 @@ impl State {
 
     pub fn user_name(&self, endpoint: Endpoint) -> Option<&String> {
         self.lan_users.get(&endpoint)
+    }
+
+    pub fn local_user_name(&self) -> &str {
+        &self.local_user_name
     }
 
     pub fn set_local_user_name(&mut self, user_name: impl Into<String>) {

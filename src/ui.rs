@@ -1,4 +1,7 @@
+pub mod layout;
 pub mod messages;
+pub mod peers_panel;
+pub mod status_panel;
 
 use resize::px::RGB;
 use resize::Pixel::RGB8;
@@ -13,10 +16,12 @@ use tui::Frame;
 use std::io::Write;
 
 use crate::commands::CommandManager;
-use crate::config::Theme;
-use crate::config::LanguageConfig;
+use crate::config::{LanguageConfig, Theme};
 use crate::state::{MessageType, ProgressState, State, SystemMessageType, Window};
+use crate::ui::layout::should_show_side_panels;
 use crate::ui::messages::messages;
+use crate::ui::peers_panel::draw_peers_panel;
+use crate::ui::status_panel::draw_status_panel;
 use crate::util::split_each;
 
 pub fn draw(
@@ -26,23 +31,50 @@ pub fn draw(
     theme: &Theme,
     language: &LanguageConfig,
 ) {
-    let chunks = Layout::default()
+    // Vertical split: upper area + input
+    let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(6)].as_ref())
         .split(chunk);
 
-    let upper_chunk = chunks[0];
-    if !state.windows.is_empty() {
-        let upper_chunks = Layout::default()
+    let upper_chunk = v_chunks[0];
+
+    if should_show_side_panels(chunk.width) {
+        // ── 3-pane layout ──────────────────────────────────────────────────
+        let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
+            .constraints(layout::three_pane_constraints())
             .split(upper_chunk);
-        draw_messages_panel(frame, state, upper_chunks[0], theme, language);
-        draw_video_panel(frame, state, upper_chunks[1]);
+
+        draw_peers_panel(frame, state, h_chunks[0]);
+
+        if !state.windows.is_empty() {
+            let chat_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
+                .split(h_chunks[1]);
+            draw_messages_panel(frame, state, chat_chunks[0], theme, language);
+            draw_video_panel(frame, state, chat_chunks[1]);
+        } else {
+            draw_messages_panel(frame, state, h_chunks[1], theme, language);
+        }
+
+        draw_status_panel(frame, state, h_chunks[2]);
     } else {
-        draw_messages_panel(frame, state, chunks[0], theme, language);
+        // ── narrow fallback: chat only ──────────────────────────────────────
+        if !state.windows.is_empty() {
+            let h_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
+                .split(upper_chunk);
+            draw_messages_panel(frame, state, h_chunks[0], theme, language);
+            draw_video_panel(frame, state, h_chunks[1]);
+        } else {
+            draw_messages_panel(frame, state, upper_chunk, theme, language);
+        }
     }
-    draw_input_panel(frame, state, chunks[1], theme);
+
+    draw_input_panel(frame, state, v_chunks[1], theme);
 }
 
 fn draw_messages_panel(

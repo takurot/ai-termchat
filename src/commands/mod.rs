@@ -1,4 +1,5 @@
 pub mod ai_cmd;
+pub mod avatar_cmd;
 pub mod room_cmd;
 pub mod send_file;
 pub mod skill_cmd;
@@ -11,6 +12,19 @@ use crate::state::{AiFrequency, AiMode};
 use crate::util::Result;
 
 pub use ai_cmd::AiCommand;
+
+/// Subcommands for the `/avatar` command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AvatarCommandKind {
+    /// `/avatar set <target> <preset>` — change a target's avatar preset.
+    Set { target: String, preset: String },
+    /// `/avatar preview` — show current avatar in all sizes.
+    Preview,
+    /// `/avatar mode <compact|normal|expressive>` — change global size.
+    Mode(String),
+    /// `/avatar list` — list available presets.
+    List,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SummaryCommandKind {
@@ -34,6 +48,7 @@ pub enum AppCommand {
     Skill { name: String, args: Vec<String> },
     RunProposal(usize),
     Cancel,
+    Avatar(AvatarCommandKind),
     Help,
 }
 

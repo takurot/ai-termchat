@@ -17,6 +17,8 @@ pub struct Config {
     pub ai: AiConfig,
     pub security: SecurityConfig,
     pub theme: Theme,
+    #[serde(default)]
+    pub user: UserConfig,
 }
 
 impl Default for Config {
@@ -30,6 +32,7 @@ impl Default for Config {
             ai: AiConfig::default(),
             security: SecurityConfig::default(),
             theme: Theme::default(),
+            user: UserConfig::default(),
         }
     }
 }
@@ -95,6 +98,21 @@ impl Config {
         }
 
         config
+    }
+}
+
+/// Per-user display preferences (serialised to `config.toml` under `[user]`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserConfig {
+    /// Avatar preset name for the local user (default: `"human_default"`).
+    pub avatar: String,
+    /// Avatar preset name for the AI (default: `"ai_default"`).
+    pub ai_avatar: String,
+}
+
+impl Default for UserConfig {
+    fn default() -> Self {
+        Self { avatar: "human_default".into(), ai_avatar: "ai_default".into() }
     }
 }
 
