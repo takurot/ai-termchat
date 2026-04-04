@@ -1,6 +1,7 @@
 pub mod layout;
 pub mod messages;
 pub mod peers_panel;
+pub mod room_list_panel;
 pub mod status_panel;
 
 use resize::px::RGB;
@@ -21,6 +22,7 @@ use crate::state::{MessageType, ProgressState, State, SystemMessageType, Window}
 use crate::ui::layout::should_show_side_panels;
 use crate::ui::messages::messages;
 use crate::ui::peers_panel::draw_peers_panel;
+use crate::ui::room_list_panel::draw_room_list_panel;
 use crate::ui::status_panel::draw_status_panel;
 use crate::util::split_each;
 
@@ -40,13 +42,36 @@ pub fn draw(
     let upper_chunk = v_chunks[0];
 
     if should_show_side_panels(chunk.width) {
-        // ── 3-pane layout ──────────────────────────────────────────────────
+        // ── Wide layout ────────────────────────────────────────────────────
+        //
+        //  ┌──────────┬───────────────┬──────────┐
+        //  │  Peers   │     Chat      │  ops-ai  │
+        //  ├──────────┤               │          │
+        //  │  Rooms   │               │          │
+        //  ├──────────┴───────────────┴──────────┤
+        //  │               Input                 │
+        //  └─────────────────────────────────────┘
+        //
+        // Horizontal: left column(18) | chat(min) | status(22)
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(layout::three_pane_constraints())
             .split(upper_chunk);
 
-        draw_peers_panel(frame, state, h_chunks[0]);
+        // Left column: peers(min) above, rooms(scaled) below
+        let left_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(layout::left_column_constraints(upper_chunk.height))
+            .split(h_chunks[0]);
+
+        draw_peers_panel(frame, state, left_chunks[0]);
+        draw_room_list_panel(
+            frame,
+            state.rooms(),
+            state.active_room_id(),
+            state.room_list_scroll(),
+            left_chunks[1],
+        );
 
         if !state.windows.is_empty() {
             let chat_chunks = Layout::default()
