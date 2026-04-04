@@ -13,12 +13,15 @@ use message_io::node::{
 use crate::action::{Action, Processing};
 use crate::ai::trigger::{should_intervene, TriggerConfig};
 use crate::ai::{AiMediator, AiTask};
+use crate::avatar::loader::AvatarManager;
+use crate::avatar::{AvatarSize, AvatarState};
 use crate::commands::ai_cmd::AiCommand;
+use crate::commands::avatar_cmd::AvatarCommand;
 use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
 use crate::commands::skill_cmd::{CancelCommand, RunCommand, SkillCommand, SkillsCommand};
 use crate::commands::summary_cmd::SummaryCommand;
-use crate::commands::{AppCommand, CommandManager, ParsedCommand, SummaryCommandKind};
+use crate::commands::{AppCommand, AvatarCommandKind, CommandManager, ParsedCommand, SummaryCommandKind};
 use crate::config::Config;
 use crate::encoder::{self, Encoder};
 use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
@@ -52,6 +55,7 @@ pub struct Application<'a> {
     encoder: Encoder,
     runtime: tokio::runtime::Runtime,
     ai_mediator: Option<Arc<AiMediator>>,
+    avatar_manager: AvatarManager,
     test_mode: bool,
     local_server_port: Option<u16>,
 }
@@ -107,12 +111,15 @@ impl<'a> Application<'a> {
             .with(SummaryCommand::summary())
             .with(SummaryCommand::todos())
             .with(SummaryCommand::decisions())
-            .with(SummaryCommand::context());
+            .with(SummaryCommand::context())
+            .with(AvatarCommand);
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut state = State::default();
         state.set_local_user_name(config.user_name.clone());
         state.ui_language = config.language.ui.clone();
+        state.user_avatar = config.user.avatar.clone();
+        state.ai_avatar = config.user.ai_avatar.clone();
         state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
         state.set_transcript_base_dir(dirs_next::data_dir());
@@ -131,6 +138,11 @@ impl<'a> Application<'a> {
             None
         };
 
+        let avatar_dir = dirs_next::config_dir()
+            .map(|d| d.join("triadchat").join("avatars"))
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp/triadchat-avatars"));
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
         Ok(Self {
             config,
             commands,
@@ -142,6 +154,7 @@ impl<'a> Application<'a> {
             encoder: Encoder::new(),
             runtime,
             ai_mediator,
+            avatar_manager,
             test_mode: !collect_terminal_events,
             local_server_port: None,
         })
@@ -538,10 +551,69 @@ impl<'a> Application<'a> {
                 self.queue_or_run_skill(proposal.skill_name, Vec::new());
             }
             AppCommand::Cancel => self.cancel_active_task(),
+            AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
                 self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel".into(),
+                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
                 );
+            }
+        }
+    }
+
+    fn process_avatar_command(&mut self, kind: AvatarCommandKind) {
+        match kind {
+            AvatarCommandKind::Set { target, preset } => {
+                if !self.avatar_manager.list_all_presets().iter().any(|p| p == &preset) {
+                    self.state.add_system_warn_message(format!(
+                        "Unknown avatar preset '{}'. Use /avatar list to see available presets.",
+                        preset
+                    ));
+                    return;
+                }
+                if target == "self" || target == self.state.local_user_name() {
+                    self.state.user_avatar = preset.clone();
+                    self.state
+                        .add_system_info_message(format!("Your avatar set to '{}'", preset));
+                } else if target == "@ops-ai" || target == "ops-ai" {
+                    self.state.ai_avatar = preset.clone();
+                    self.state
+                        .add_system_info_message(format!("AI avatar set to '{}'", preset));
+                } else {
+                    self.state.add_system_warn_message(format!(
+                        "Unknown target '{}'. Use 'self', 'ops-ai', or your username.",
+                        target
+                    ));
+                }
+            }
+            AvatarCommandKind::Preview => {
+                let preset = self.state.user_avatar.clone();
+                for size in [AvatarSize::Compact, AvatarSize::Normal, AvatarSize::Expressive] {
+                    let label = format!("[{size:?}]");
+                    let art = self.avatar_manager.render(&preset, AvatarState::Online, size);
+                    self.state.add_system_info_message(format!("{}\n{}", label, art));
+                }
+            }
+            AvatarCommandKind::Mode(mode) => {
+                match mode.as_str() {
+                    "compact" | "normal" | "expressive" => {
+                        self.state.avatar_size = mode.clone();
+                        self.state
+                            .add_system_info_message(format!("Avatar mode set to '{}'", mode));
+                    }
+                    other => {
+                        self.state.add_system_warn_message(format!(
+                            "Unknown avatar mode '{}'. Use compact, normal, or expressive.",
+                            other
+                        ));
+                    }
+                }
+            }
+            AvatarCommandKind::List => {
+                let presets = self.avatar_manager.list_all_presets();
+                self.state.add_system_info_message(format!(
+                    "Available avatar presets: {}",
+                    presets.join(", ")
+                ));
             }
         }
     }

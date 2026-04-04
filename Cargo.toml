@@ -39,6 +39,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 which = "4"
 sha2 = "0.10"
+libloading = { version = "0.8", optional = true }
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 rand = "0.8.3"
@@ -46,3 +48,6 @@ tempfile = "3"
 
 [features]
 ui-test = []
+# Enable FFI-based avatar plugin loading via libloading. Disabled by default
+# to avoid pulling in dynamic linking dependencies in standard builds.
+avatar-ffi = ["libloading", "libc"]

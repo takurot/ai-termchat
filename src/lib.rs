@@ -1,5 +1,6 @@
 pub mod application;
 pub mod ai;
+pub mod avatar;
 pub mod room;
 pub mod skill;
 pub mod state;
@@ -8,7 +9,7 @@ pub mod message;
 mod renderer;
 mod action;
 pub mod commands;
-mod ui;
+pub mod ui;
 mod util;
 mod encoder;
 pub mod config;
