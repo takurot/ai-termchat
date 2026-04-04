@@ -1,4 +1,5 @@
 pub mod member;
+pub mod transcript;
 
 use crate::message::RoomId;
 use crate::state::AiMode;
@@ -42,10 +43,8 @@ impl RoomEngine {
     }
 
     pub fn create_remote_room(&mut self, room_id: &str, member_ids: &[String]) -> Room {
-        let ai_mode = member_ids
-            .iter()
-            .any(|member_id| member_id == "ops-ai")
-            .then_some(AiMode::Clerk);
+        let ai_mode =
+            member_ids.iter().any(|member_id| member_id == "ops-ai").then_some(AiMode::Clerk);
         let members = member_ids
             .iter()
             .map(|member_id| {

@@ -23,7 +23,8 @@ fn peer_info_round_trips_through_bincode() {
 
 #[test]
 fn room_and_skill_variants_round_trip_through_bincode() {
-    let room_create = NetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
+    let room_create =
+        NetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
     let room_join = NetMessage::RoomJoin("room-1".into());
     let skill_done = NetMessage::SkillResult(SkillResultPayload {
         skill_name: "review-auth".into(),
@@ -37,7 +38,10 @@ fn room_and_skill_variants_round_trip_through_bincode() {
             bincode::deserialize(&encoded).expect("message should deserialize");
 
         match (message, decoded) {
-            (NetMessage::RoomCreate(expected_id, expected_members), NetMessage::RoomCreate(id, members)) => {
+            (
+                NetMessage::RoomCreate(expected_id, expected_members),
+                NetMessage::RoomCreate(id, members),
+            ) => {
                 assert_eq!(id, expected_id);
                 assert_eq!(members, expected_members);
             }

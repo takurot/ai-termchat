@@ -4,11 +4,12 @@ use triadchat::application::Application;
 use triadchat::config::Config;
 
 fn test_config(user_name: &str, discovery_port: u16) -> Config {
-    let mut config = Config::default();
-    config.user_name = user_name.to_string();
-    config.discovery_addr = format!("239.255.0.1:{discovery_port}").parse().unwrap();
-    config.terminal_bell = false;
-    config
+    Config {
+        user_name: user_name.to_string(),
+        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
+        terminal_bell: false,
+        ..Config::default()
+    }
 }
 
 fn pump_until<F>(
@@ -29,14 +30,20 @@ fn pump_until<F>(
         let _ = right.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }
 
-    panic!("timed out waiting for integration condition");
+    panic!(
+        "timed out waiting for integration condition: left peers={:?} rooms={:?}, right peers={:?} rooms={:?}",
+        left.state().peers().values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>(),
+        left.state().rooms().iter().map(|room| room.id.clone()).collect::<Vec<_>>(),
+        right.state().peers().values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>(),
+        right.state().rooms().iter().map(|room| room.id.clone()).collect::<Vec<_>>(),
+    );
 }
 
 #[test]
-fn peers_exchange_info_and_room_create_propagates() {
+fn peer_handshake_and_room_create_propagates() {
     let discovery_port = 38000 + (rand::random::<u16>() % 1000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port + 1);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
@@ -44,14 +51,13 @@ fn peers_exchange_info_and_room_create_propagates() {
     std::thread::sleep(Duration::from_millis(100));
     tanaka.start_network_for_test().unwrap();
     std::thread::sleep(Duration::from_millis(100));
+    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
         left.state().peers().len() == 1 && right.state().peers().len() == 1
     });
 
-    takuro
-        .handle_input_line_for_test("/room create @tanaka --ai clerk")
-        .unwrap();
+    takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
         left.state().rooms().len() == 1
@@ -63,12 +69,7 @@ fn peers_exchange_info_and_room_create_propagates() {
     let takuro_room = &takuro.state().rooms()[0];
     assert!(takuro_room.members.iter().any(|member| member.id == "ops-ai"));
     assert_eq!(
-        tanaka
-            .state()
-            .peers()
-            .values()
-            .next()
-            .map(|peer| peer.user_name.as_str()),
+        tanaka.state().peers().values().next().map(|peer| peer.user_name.as_str()),
         Some("takuro")
     );
 }

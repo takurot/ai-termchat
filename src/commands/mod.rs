@@ -1,6 +1,7 @@
 pub mod ai_cmd;
 pub mod room_cmd;
 pub mod send_file;
+pub mod skill_cmd;
 pub mod summary_cmd;
 
 use std::collections::HashMap;
@@ -29,6 +30,10 @@ pub enum AppCommand {
     RoomList,
     RoomSwitch(String),
     Peers,
+    Skills,
+    Skill { name: String, args: Vec<String> },
+    RunProposal(usize),
+    Cancel,
     Help,
 }
 

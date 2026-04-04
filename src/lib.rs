@@ -1,6 +1,7 @@
 pub mod application;
 pub mod ai;
 pub mod room;
+pub mod skill;
 pub mod state;
 mod terminal_events;
 pub mod message;
@@ -11,4 +12,4 @@ mod ui;
 mod util;
 mod encoder;
 pub mod config;
-pub use message::{AiIntent, AiPayload, StructuredOutput, TodoItem};
+pub use message::{AiIntent, AiPayload, MemberId, PeerInfo, RoomId, StructuredOutput, TodoItem};

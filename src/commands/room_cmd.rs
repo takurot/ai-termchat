@@ -19,7 +19,9 @@ impl Command for RoomCommand {
                 let mut index = 1;
                 while index < params.len() {
                     match params[index].as_str() {
-                        value if value.starts_with('@') => peers.push(value.trim_start_matches('@').to_string()),
+                        value if value.starts_with('@') => {
+                            peers.push(value.trim_start_matches('@').to_string())
+                        }
                         "--ai" => {
                             let value = params
                                 .get(index + 1)
@@ -33,7 +35,9 @@ impl Command for RoomCommand {
                 }
 
                 if peers.is_empty() {
-                    return Err(anyhow::anyhow!("usage: /room create @user1 [@user2] [--ai <mode>]"));
+                    return Err(anyhow::anyhow!(
+                        "usage: /room create @user1 [@user2] [--ai <mode>]"
+                    ));
                 }
 
                 Ok(ParsedCommand::App(AppCommand::RoomCreate { peers, ai_mode }))
