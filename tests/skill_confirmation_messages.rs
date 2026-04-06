@@ -54,8 +54,8 @@ fn skill_confirmation_prompt_is_in_english() {
         .join("\n");
 
     assert!(
-        rendered.contains("Execute this skill? [y/n]"),
-        "Confirmation prompt should be in English, got:\n{rendered}"
+        rendered.contains("[deploy-prod] Execute this skill? [y/n]"),
+        "Confirmation prompt should be in English with skill name, got:\n{rendered}"
     );
     assert!(
         !rendered.contains("実行しますか"),
