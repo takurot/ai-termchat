@@ -1,32 +1,47 @@
-use triadchat::ui::layout::{three_pane_constraints, should_show_side_panels};
+use triadchat::ui::layout::{left_right_constraints, right_column_constraints, should_show_side_panels};
 
-// ─── Three-pane constraint generation ────────────────────────────────────────
+// ─── Left/right horizontal constraints ───────────────────────────────────────
 
 #[test]
-fn three_pane_constraints_have_correct_widths() {
-    let constraints = three_pane_constraints();
-    assert_eq!(constraints.len(), 3, "must have exactly 3 constraints");
+fn left_right_constraints_have_two_panes() {
+    let constraints = left_right_constraints();
+    assert_eq!(constraints.len(), 2);
 }
 
 #[test]
 fn peers_panel_width_is_18() {
     use tui::layout::Constraint;
-    let constraints = three_pane_constraints();
+    let constraints = left_right_constraints();
     assert_eq!(constraints[0], Constraint::Length(18));
 }
 
 #[test]
-fn status_panel_width_is_22() {
+fn right_column_uses_min_constraint() {
     use tui::layout::Constraint;
-    let constraints = three_pane_constraints();
-    assert_eq!(constraints[2], Constraint::Length(22));
+    let constraints = left_right_constraints();
+    assert_eq!(constraints[1], Constraint::Min(0));
+}
+
+// ─── Right column vertical constraints ───────────────────────────────────────
+
+#[test]
+fn right_column_constraints_have_two_panes() {
+    let constraints = right_column_constraints();
+    assert_eq!(constraints.len(), 2);
 }
 
 #[test]
-fn chat_panel_uses_min_constraint() {
+fn chat_uses_min_constraint() {
     use tui::layout::Constraint;
-    let constraints = three_pane_constraints();
-    assert_eq!(constraints[1], Constraint::Min(0));
+    let constraints = right_column_constraints();
+    assert_eq!(constraints[0], Constraint::Min(0));
+}
+
+#[test]
+fn status_panel_height_is_11() {
+    use tui::layout::Constraint;
+    let constraints = right_column_constraints();
+    assert_eq!(constraints[1], Constraint::Length(11));
 }
 
 // ─── Side panel visibility ────────────────────────────────────────────────────

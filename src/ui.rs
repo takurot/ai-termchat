@@ -33,7 +33,7 @@ pub fn draw(
     theme: &Theme,
     language: &LanguageConfig,
 ) {
-    // Vertical split: upper area + input
+    // Outer vertical split: [upper(min), input(6)]
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(6)].as_ref())
@@ -44,18 +44,18 @@ pub fn draw(
     if should_show_side_panels(chunk.width) {
         // ── Wide layout ────────────────────────────────────────────────────
         //
-        //  ┌──────────┬───────────────┬──────────┐
-        //  │  Peers   │     Chat      │  ops-ai  │
-        //  ├──────────┤               │          │
-        //  │  Rooms   │               │          │
-        //  ├──────────┴───────────────┴──────────┤
-        //  │               Input                 │
-        //  └─────────────────────────────────────┘
+        //  ┌──────────┬──────────────────────┐
+        //  │  Peers   │        Chat          │
+        //  │──────────┤──────────────────────┤
+        //  │  Rooms   │       ops-ai         │
+        //  ├──────────┴──────────────────────┤
+        //  │              Input              │
+        //  └─────────────────────────────────┘
         //
-        // Horizontal: left column(18) | chat(min) | status(22)
+        // Horizontal: left column(18) | right column(min)
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(layout::three_pane_constraints())
+            .constraints(layout::left_right_constraints())
             .split(upper_chunk);
 
         // Left column: peers(min) above, rooms(scaled) below
@@ -63,6 +63,12 @@ pub fn draw(
             .direction(Direction::Vertical)
             .constraints(layout::left_column_constraints(upper_chunk.height))
             .split(h_chunks[0]);
+
+        // Right column: chat(min) above, ops-ai(11) below
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(layout::right_column_constraints())
+            .split(h_chunks[1]);
 
         draw_peers_panel(frame, state, left_chunks[0]);
         draw_room_list_panel(
@@ -77,26 +83,33 @@ pub fn draw(
             let chat_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
-                .split(h_chunks[1]);
+                .split(right_chunks[0]);
             draw_messages_panel(frame, state, chat_chunks[0], theme, language);
             draw_video_panel(frame, state, chat_chunks[1]);
         } else {
-            draw_messages_panel(frame, state, h_chunks[1], theme, language);
+            draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
 
-        draw_status_panel(frame, state, h_chunks[2]);
+        draw_status_panel(frame, state, right_chunks[1]);
     } else {
-        // ── narrow fallback: chat only ──────────────────────────────────────
+        // ── Narrow layout: chat above, ops-ai below ─────────────────────────
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(layout::right_column_constraints())
+            .split(upper_chunk);
+
         if !state.windows.is_empty() {
-            let h_chunks = Layout::default()
+            let chat_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
-                .split(upper_chunk);
-            draw_messages_panel(frame, state, h_chunks[0], theme, language);
-            draw_video_panel(frame, state, h_chunks[1]);
+                .split(right_chunks[0]);
+            draw_messages_panel(frame, state, chat_chunks[0], theme, language);
+            draw_video_panel(frame, state, chat_chunks[1]);
         } else {
-            draw_messages_panel(frame, state, upper_chunk, theme, language);
+            draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
+
+        draw_status_panel(frame, state, right_chunks[1]);
     }
 
     draw_input_panel(frame, state, v_chunks[1], theme);

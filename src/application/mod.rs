@@ -858,7 +858,7 @@ impl<'a> Application<'a> {
                 self.start_skill_execution(PendingSkillExecution { meta, args });
             }
             InvokeMode::Confirm | InvokeMode::Manual | InvokeMode::AutoSafe => {
-                let prompt = format!("[{}] 実行しますか? [y/n]", meta.name);
+                let prompt = format!("[{}] Execute this skill? [y/n]", meta.name);
                 self.state.queue_skill_confirmation(PendingSkillExecution { meta, args });
                 self.state.add_system_info_message(prompt);
             }
@@ -897,7 +897,7 @@ impl<'a> Application<'a> {
         }
 
         self.state.ai_state = AiState::Acting;
-        self.state.add_system_info_message(format!("[ops-ai: /{} 実行中...]", pending.meta.name));
+        self.state.add_system_info_message(format!("[ops-ai: running /{}...]", pending.meta.name));
 
         if self.test_mode {
             let payload = self.runtime.block_on(SkillExecutor::run(
