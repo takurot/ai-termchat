@@ -40,18 +40,12 @@ fn skill_confirmation_prompt_is_in_english() {
     let workspace = create_confirm_skill_workspace();
     let mut config = Config::default();
     config.ai.command = Some("true".into());
-    let mut app =
-        Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
+    let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
 
     app.handle_input_line_for_test("/skill deploy-prod").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|m| m.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
 
     assert!(
         rendered.contains("[deploy-prod] Execute this skill? [y/n]"),
@@ -67,27 +61,18 @@ fn skill_confirmation_prompt_is_in_english() {
 #[test]
 fn skill_running_message_is_in_english() {
     let workspace = create_confirm_skill_workspace();
-    let script = write_script(
-        &workspace,
-        "mock-claude.sh",
-        "#!/bin/sh\nprintf 'deploy-prod finished'\n",
-    );
+    let script =
+        write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'deploy-prod finished'\n");
 
     let mut config = Config::default();
     config.ai.command = Some(script.display().to_string());
-    let mut app =
-        Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
+    let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
 
     app.handle_input_line_for_test("/skill deploy-prod").unwrap();
     app.handle_confirmation_input_for_test('y').unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|m| m.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
 
     assert!(
         rendered.contains("[ops-ai: running /deploy-prod...]"),
