@@ -147,11 +147,138 @@ pub fn robot_guardian() -> Box<dyn AvatarPlugin> {
     Box::new(RobotGuardian)
 }
 
+// ─── claude ───────────────────────────────────────────────────────────────────
+
+struct ClaudeAvatar;
+
+impl AvatarPlugin for ClaudeAvatar {
+    fn preset_name(&self) -> &str {
+        "claude"
+    }
+
+    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+        match size {
+            AvatarSize::Compact => match state {
+                AvatarState::Idle | AvatarState::Online => "◈(・ω・)".into(),
+                AvatarState::Thinking => "◉(・・・)".into(),
+                AvatarState::Acting => "▶(☆ω☆)".into(),
+                AvatarState::Failed => "✕(×_×)".into(),
+                AvatarState::Disabled => "○(・ー・)".into(),
+                AvatarState::Busy => "◉(>ω<)".into(),
+                AvatarState::Away => "◈(-ω-)".into(),
+                AvatarState::Offline => "○(._.)".into(),
+            },
+            AvatarSize::Normal => match state {
+                AvatarState::Idle | AvatarState::Online => " (・ω・)\n╰[claude]╯\n  /   \\".into(),
+                AvatarState::Thinking => " (・・・)\n╰[claude]╯ ~\n  /   \\".into(),
+                AvatarState::Acting => " (☆ω☆)\n╰[claude]╯>>\n  >>  \\".into(),
+                AvatarState::Failed => " (×_×)\n╰[claude]╯\n  /   \\".into(),
+                AvatarState::Disabled => " (・ー・)\n╰[claude]╯\n  /   \\".into(),
+                AvatarState::Busy => " (>ω<)\n╰[claude]╯\n  / ! \\".into(),
+                AvatarState::Away => " (-ω-)\n╰[claude]╯\n  /   \\".into(),
+                AvatarState::Offline => " (._. )\n╰[claude]╯\n  /   \\".into(),
+            },
+            AvatarSize::Expressive => match state {
+                AvatarState::Idle | AvatarState::Online => {
+                    "╭─────╮\n│ ◕ω◕ │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                }
+                AvatarState::Thinking => {
+                    "╭─────╮\n│ ◉ ◉ │~\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                }
+                AvatarState::Acting => {
+                    "╭─────╮\n│ ☆ω☆ │\n│claude│\n╰──┬──╯\n >>|__\n/>> \\".into()
+                }
+                AvatarState::Failed => {
+                    "╭─────╮\n│ ×_× │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                }
+                AvatarState::Disabled => {
+                    "╭─────╮\n│ ・ー・│\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                }
+                AvatarState::Busy => {
+                    "╭─────╮\n│ >ω< │\n│claude│\n╰──┬──╯\n __|__\n/ ! \\".into()
+                }
+                AvatarState::Away => {
+                    "╭─────╮\n│ -ω- │\n│claude│\n╰──┬──╯\n __|__\nz/   \\".into()
+                }
+                AvatarState::Offline => {
+                    "╭─────╮\n│ ._. │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                }
+            },
+        }
+    }
+}
+
+/// Returns a `Box<dyn AvatarPlugin>` for the `claude` preset.
+pub fn claude() -> Box<dyn AvatarPlugin> {
+    Box::new(ClaudeAvatar)
+}
+
+// ─── neko ─────────────────────────────────────────────────────────────────────
+
+struct NekoAvatar;
+
+impl AvatarPlugin for NekoAvatar {
+    fn preset_name(&self) -> &str {
+        "neko"
+    }
+
+    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+        match size {
+            AvatarSize::Compact => match state {
+                AvatarState::Online | AvatarState::Idle => "=^・ω・^=".into(),
+                AvatarState::Away => "=^-ω-^=".into(),
+                AvatarState::Offline => "=^x_x^=".into(),
+                AvatarState::Busy | AvatarState::Acting => "=^>ω<^=".into(),
+                AvatarState::Thinking => "=^・・・^=".into(),
+                AvatarState::Disabled => "=^・ー・^=".into(),
+                AvatarState::Failed => "=^×_×^=".into(),
+            },
+            AvatarSize::Normal => match state {
+                AvatarState::Online | AvatarState::Idle => " /\\_/\\\n( ^ω^ )\n > 🐾 <".into(),
+                AvatarState::Away => " /\\_/\\\n( -ω- )\n > zzz".into(),
+                AvatarState::Offline => " /\\_/\\\n( x_x )\n >    <".into(),
+                AvatarState::Busy | AvatarState::Acting => " /\\_/\\\n( >ω< )\n > !! <".into(),
+                AvatarState::Thinking => " /\\_/\\\n( ・・・)\n > ... <".into(),
+                AvatarState::Disabled => " /\\_/\\\n( ・ー・)\n >    <".into(),
+                AvatarState::Failed => " /\\_/\\\n( ×_× )\n > !! <".into(),
+            },
+            AvatarSize::Expressive => match state {
+                AvatarState::Online | AvatarState::Idle => {
+                    " /\\_____/\\\n/  ^   ^  \\\n\\ ( ◕ω◕ ) /\n \\  =^=  /\n  \\/   \\/\n  neko!".into()
+                }
+                AvatarState::Away => {
+                    " /\\_____/\\\n/  -   -  \\\n\\ ( -ω- ) /\n \\  =^=  /\n  \\/   \\/\n  zzzz".into()
+                }
+                AvatarState::Offline => {
+                    " /\\_____/\\\n/  x   x  \\\n\\ ( x_x ) /\n \\  =^=  /\n  \\/   \\/\n  gone".into()
+                }
+                AvatarState::Busy | AvatarState::Acting => {
+                    " /\\_____/\\\n/  >   <  \\\n\\ ( >ω< ) /\n \\  =^=  /\n  \\/   \\/\n  busy!".into()
+                }
+                AvatarState::Thinking => {
+                    " /\\_____/\\\n/  .   .  \\\n\\ (・・・) /\n \\  =^=  /\n  \\/   \\/\n  hmm...".into()
+                }
+                AvatarState::Disabled => {
+                    " /\\_____/\\\n/  -   -  \\\n\\ (・ー・) /\n \\  =^=  /\n  \\/   \\/\n  ...".into()
+                }
+                AvatarState::Failed => {
+                    " /\\_____/\\\n/  ×   ×  \\\n\\ ( ×_× ) /\n \\  =^=  /\n  \\/   \\/\n  oh no".into()
+                }
+            },
+        }
+    }
+}
+
+/// Returns a `Box<dyn AvatarPlugin>` for the `neko` preset.
+pub fn neko() -> Box<dyn AvatarPlugin> {
+    Box::new(NekoAvatar)
+}
+
 // ─── All builtin presets ─────────────────────────────────────────────────────
 
 /// Returns all builtin preset plugins.
 pub fn all_builtins() -> Vec<Box<dyn AvatarPlugin>> {
-    vec![human_default(), ai_default(), robot_guardian()]
+    vec![human_default(), ai_default(), robot_guardian(), claude(), neko()]
 }
 
 /// Render the `human_default` avatar without a heap allocation.
