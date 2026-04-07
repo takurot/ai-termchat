@@ -31,7 +31,9 @@ impl TriggerConfig {
         match frequency {
             AiFrequency::Low => Self { cooldown: Duration::from_secs(45), human_streak_limit: 4 },
             AiFrequency::Normal => match mode {
-                AiMode::Companion => Self { cooldown: Duration::from_secs(10), human_streak_limit: 6 },
+                AiMode::Companion => {
+                    Self { cooldown: Duration::from_secs(10), human_streak_limit: 6 }
+                }
                 _ => Self::default(),
             },
             AiFrequency::High => Self { cooldown: Duration::from_secs(15), human_streak_limit: 2 },
@@ -45,8 +47,8 @@ fn contains_ops_ai_mention(input: &str) -> bool {
     const TAG: &str = "@ops-ai";
     let mut haystack = input;
     while let Some(pos) = haystack.find(TAG) {
-        let before_ok =
-            pos == 0 || haystack[..pos].chars().last().map(|c| !c.is_alphanumeric()).unwrap_or(true);
+        let before_ok = pos == 0
+            || haystack[..pos].chars().last().map(|c| !c.is_alphanumeric()).unwrap_or(true);
         let after_start = pos + TAG.len();
         let after_ok = haystack[after_start..]
             .chars()
@@ -110,28 +112,60 @@ mod tests {
     fn companion_always_intervenes_after_cooldown() {
         let config = TriggerConfig { cooldown: Duration::from_secs(10), human_streak_limit: 6 };
         let past = now() - Duration::from_secs(11);
-        assert!(should_intervene("any message here", AiMode::Companion, &config, false, Some(past), 0, now()));
+        assert!(should_intervene(
+            "any message here",
+            AiMode::Companion,
+            &config,
+            false,
+            Some(past),
+            0,
+            now()
+        ));
     }
 
     #[test]
     fn companion_blocked_while_ai_thinking() {
         let config = TriggerConfig { cooldown: Duration::from_secs(10), human_streak_limit: 6 };
         let past = now() - Duration::from_secs(11);
-        assert!(!should_intervene("any message", AiMode::Companion, &config, true, Some(past), 0, now()));
+        assert!(!should_intervene(
+            "any message",
+            AiMode::Companion,
+            &config,
+            true,
+            Some(past),
+            0,
+            now()
+        ));
     }
 
     #[test]
     fn companion_blocked_during_cooldown() {
         let config = TriggerConfig { cooldown: Duration::from_secs(10), human_streak_limit: 6 };
         let recent = now() - Duration::from_secs(5);
-        assert!(!should_intervene("any message", AiMode::Companion, &config, false, Some(recent), 0, now()));
+        assert!(!should_intervene(
+            "any message",
+            AiMode::Companion,
+            &config,
+            false,
+            Some(recent),
+            0,
+            now()
+        ));
     }
 
     #[test]
     fn companion_blocked_at_streak_limit() {
         let config = TriggerConfig { cooldown: Duration::from_secs(10), human_streak_limit: 6 };
         let past = now() - Duration::from_secs(11);
-        assert!(!should_intervene("any message", AiMode::Companion, &config, false, Some(past), 6, now()));
+        assert!(!should_intervene(
+            "any message",
+            AiMode::Companion,
+            &config,
+            false,
+            Some(past),
+            6,
+            now()
+        ));
     }
 
     #[test]
@@ -146,21 +180,45 @@ mod tests {
         let config = TriggerConfig::default();
         // Still in cooldown
         let recent = now() - Duration::from_secs(5);
-        assert!(should_intervene("@ops-ai what do you think?", AiMode::Listener, &config, false, Some(recent), 0, now()));
+        assert!(should_intervene(
+            "@ops-ai what do you think?",
+            AiMode::Listener,
+            &config,
+            false,
+            Some(recent),
+            0,
+            now()
+        ));
     }
 
     #[test]
     fn mention_blocked_while_ai_thinking() {
         let config = TriggerConfig::default();
         let recent = now() - Duration::from_secs(5);
-        assert!(!should_intervene("@ops-ai help me", AiMode::Listener, &config, true, Some(recent), 0, now()));
+        assert!(!should_intervene(
+            "@ops-ai help me",
+            AiMode::Listener,
+            &config,
+            true,
+            Some(recent),
+            0,
+            now()
+        ));
     }
 
     #[test]
     fn clerk_still_requires_keywords() {
         let config = TriggerConfig::default();
         let past = now() - Duration::from_secs(31);
-        assert!(!should_intervene("just chatting", AiMode::Clerk, &config, false, Some(past), 0, now()));
+        assert!(!should_intervene(
+            "just chatting",
+            AiMode::Clerk,
+            &config,
+            false,
+            Some(past),
+            0,
+            now()
+        ));
     }
 
     #[test]
