@@ -244,25 +244,32 @@ impl AvatarPlugin for NekoAvatar {
             },
             AvatarSize::Expressive => match state {
                 AvatarState::Online | AvatarState::Idle => {
-                    " /\\_____/\\\n/  ^   ^  \\\n\\ ( ◕ω◕ ) /\n \\  =^=  /\n  \\/   \\/\n  neko!".into()
+                    " /\\_____/\\\n/  ^   ^  \\\n\\ ( ◕ω◕ ) /\n \\  =^=  /\n  \\/   \\/\n  neko!"
+                        .into()
                 }
                 AvatarState::Away => {
-                    " /\\_____/\\\n/  -   -  \\\n\\ ( -ω- ) /\n \\  =^=  /\n  \\/   \\/\n  zzzz".into()
+                    " /\\_____/\\\n/  -   -  \\\n\\ ( -ω- ) /\n \\  =^=  /\n  \\/   \\/\n  zzzz"
+                        .into()
                 }
                 AvatarState::Offline => {
-                    " /\\_____/\\\n/  x   x  \\\n\\ ( x_x ) /\n \\  =^=  /\n  \\/   \\/\n  gone".into()
+                    " /\\_____/\\\n/  x   x  \\\n\\ ( x_x ) /\n \\  =^=  /\n  \\/   \\/\n  gone"
+                        .into()
                 }
                 AvatarState::Busy | AvatarState::Acting => {
-                    " /\\_____/\\\n/  >   <  \\\n\\ ( >ω< ) /\n \\  =^=  /\n  \\/   \\/\n  busy!".into()
+                    " /\\_____/\\\n/  >   <  \\\n\\ ( >ω< ) /\n \\  =^=  /\n  \\/   \\/\n  busy!"
+                        .into()
                 }
                 AvatarState::Thinking => {
-                    " /\\_____/\\\n/  .   .  \\\n\\ (・・・) /\n \\  =^=  /\n  \\/   \\/\n  hmm...".into()
+                    " /\\_____/\\\n/  .   .  \\\n\\ (・・・) /\n \\  =^=  /\n  \\/   \\/\n  hmm..."
+                        .into()
                 }
                 AvatarState::Disabled => {
-                    " /\\_____/\\\n/  -   -  \\\n\\ (・ー・) /\n \\  =^=  /\n  \\/   \\/\n  ...".into()
+                    " /\\_____/\\\n/  -   -  \\\n\\ (・ー・) /\n \\  =^=  /\n  \\/   \\/\n  ..."
+                        .into()
                 }
                 AvatarState::Failed => {
-                    " /\\_____/\\\n/  ×   ×  \\\n\\ ( ×_× ) /\n \\  =^=  /\n  \\/   \\/\n  oh no".into()
+                    " /\\_____/\\\n/  ×   ×  \\\n\\ ( ×_× ) /\n \\  =^=  /\n  \\/   \\/\n  oh no"
+                        .into()
                 }
             },
         }
