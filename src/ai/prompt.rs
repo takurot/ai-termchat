@@ -47,6 +47,28 @@ pub fn intervene_prompt(transcript: &str, last_messages: &[String], lang: &str) 
     )
 }
 
+pub fn mention_prompt(message: &str, transcript: &str, lang: &str) -> String {
+    format!(
+        "TASK:mention\n{}\n\
+        You are ops-ai, a helpful team member who was directly addressed.\n\
+        Rules:\n\
+        - Answer the QUESTION below with actual content (1-3 sentences).\n\
+        - Do NOT start your answer by describing or restating the question.\n\
+        - Do NOT write 'The user is asking...' or 'ユーザーが〜と質問しています' or similar meta-commentary.\n\
+        - Do NOT generate TODO items or decisions — always leave STRUCTURED arrays empty.\n\
+        - Be direct and conversational, like a knowledgeable teammate.\n\
+        Return EXACTLY this format (no other text):\n\
+        INTENT: Clarify\n\
+        TEXT: <your direct answer here>\n\
+        STRUCTURED: {{\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}}\n\
+        QUESTION: {}\n\
+        RECENT CONTEXT:\n{}\n",
+        lang_instruction(lang),
+        message,
+        truncate_transcript(transcript, 10)
+    )
+}
+
 pub fn companion_prompt(transcript: &str, last_messages: &[String], lang: &str) -> String {
     format!(
         "{}\n\
@@ -58,4 +80,47 @@ pub fn companion_prompt(transcript: &str, last_messages: &[String], lang: &str) 
         base_prompt("companion", transcript, lang),
         last_messages.join("\n")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mention_prompt_contains_question() {
+        let prompt = mention_prompt("熱海はどのような場所？", "alice: 旅行の話", "ja");
+        assert!(prompt.contains("熱海はどのような場所？"));
+    }
+
+    #[test]
+    fn mention_prompt_contains_no_meta_commentary_instruction() {
+        let prompt = mention_prompt("question", "transcript", "en");
+        assert!(prompt.contains("Do NOT start your answer by describing or restating"));
+        assert!(prompt.contains("Do NOT generate TODO items"));
+    }
+
+    #[test]
+    fn mention_prompt_includes_fixed_intent_clarify() {
+        let prompt = mention_prompt("question", "transcript", "en");
+        assert!(prompt.contains("INTENT: Clarify"));
+    }
+
+    #[test]
+    fn mention_prompt_includes_context_transcript() {
+        let prompt = mention_prompt("question", "alice: hello\nbob: hi", "en");
+        assert!(prompt.contains("alice: hello"));
+    }
+
+    #[test]
+    fn mention_prompt_differs_from_intervene_prompt() {
+        let mention = mention_prompt("question", "transcript", "en");
+        let intervene = intervene_prompt("transcript", &["question".to_string()], "en");
+        assert_ne!(mention, intervene);
+    }
+
+    #[test]
+    fn mention_prompt_respects_lang() {
+        let ja = mention_prompt("質問", "transcript", "ja");
+        assert!(ja.contains("日本語"));
+    }
 }
