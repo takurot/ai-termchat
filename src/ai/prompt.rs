@@ -50,18 +50,22 @@ pub fn intervene_prompt(transcript: &str, last_messages: &[String], lang: &str) 
 pub fn mention_prompt(message: &str, transcript: &str, lang: &str) -> String {
     format!(
         "TASK:mention\n{}\n\
-        You are ops-ai, directly addressed by a user.\n\
-        Answer the question or request below directly and concisely (1-3 sentences).\n\
-        Do NOT summarise the conversation. Respond as if you are part of the team.\n\
-        Return the answer in exactly this format:\n\
+        You are ops-ai, a helpful team member who was directly addressed.\n\
+        Rules:\n\
+        - Answer the QUESTION below with actual content (1-3 sentences).\n\
+        - Do NOT start your answer by describing or restating the question.\n\
+        - Do NOT write 'The user is asking...' or 'ユーザーが〜と質問しています' or similar meta-commentary.\n\
+        - Do NOT generate TODO items or decisions — always leave STRUCTURED arrays empty.\n\
+        - Be direct and conversational, like a knowledgeable teammate.\n\
+        Return EXACTLY this format (no other text):\n\
         INTENT: Clarify\n\
-        TEXT: <your direct answer>\n\
+        TEXT: <your direct answer here>\n\
         STRUCTURED: {{\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}}\n\
-        QUESTION:\n{}\n\
-        CONTEXT (recent transcript):\n{}\n",
+        QUESTION: {}\n\
+        RECENT CONTEXT:\n{}\n",
         lang_instruction(lang),
         message,
-        truncate_transcript(transcript, 20)
+        truncate_transcript(transcript, 10)
     )
 }
 
@@ -89,9 +93,10 @@ mod tests {
     }
 
     #[test]
-    fn mention_prompt_contains_do_not_summarise_instruction() {
+    fn mention_prompt_contains_no_meta_commentary_instruction() {
         let prompt = mention_prompt("question", "transcript", "en");
-        assert!(prompt.contains("Do NOT summarise"));
+        assert!(prompt.contains("Do NOT start your answer by describing or restating"));
+        assert!(prompt.contains("Do NOT generate TODO items"));
     }
 
     #[test]
