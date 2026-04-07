@@ -30,7 +30,7 @@ impl Command for AiCommand {
                 Ok(ParsedCommand::App(AppCommand::SetAiFrequency(frequency)))
             }
             _ => Err(anyhow::anyhow!(
-                "usage: /ai mode <clerk|listener|moderator|operator> | /ai quiet <on|off> | /ai freq <low|normal|high>"
+                "usage: /ai mode <clerk|listener|moderator|operator|companion> | /ai quiet <on|off> | /ai freq <low|normal|high>"
             )),
         }
     }
@@ -42,7 +42,32 @@ fn parse_mode(value: &str) -> Result<AiMode> {
         "listener" => Ok(AiMode::Listener),
         "moderator" => Ok(AiMode::Moderator),
         "operator" => Ok(AiMode::Operator),
+        "companion" => Ok(AiMode::Companion),
         other => Err(anyhow::anyhow!("unknown ai mode: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mode_companion_returns_companion() {
+        assert_eq!(parse_mode("companion").unwrap(), AiMode::Companion);
+    }
+
+    #[test]
+    fn parse_mode_unknown_returns_error() {
+        assert!(parse_mode("unknown_mode").is_err());
+    }
+
+    #[test]
+    fn parse_mode_all_known_modes() {
+        assert!(parse_mode("clerk").is_ok());
+        assert!(parse_mode("listener").is_ok());
+        assert!(parse_mode("moderator").is_ok());
+        assert!(parse_mode("operator").is_ok());
+        assert!(parse_mode("companion").is_ok());
     }
 }
 

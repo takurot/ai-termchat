@@ -35,6 +35,7 @@ pub enum AiMode {
     Listener,
     Moderator,
     Operator,
+    Companion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

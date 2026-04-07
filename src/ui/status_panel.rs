@@ -109,6 +109,7 @@ fn format_ai_mode(mode: &AiMode) -> &'static str {
         AiMode::Listener => "listener",
         AiMode::Moderator => "moderator",
         AiMode::Operator => "operator",
+        AiMode::Companion => "companion 🗣",
     }
 }
 

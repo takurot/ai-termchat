@@ -13,7 +13,7 @@ use crate::config::{AiConfig, LanguageConfig};
 use crate::message::AiPayload;
 
 use self::parser::parse_ai_payload;
-use self::prompt::{decisions_prompt, intervene_prompt, summary_prompt, todos_prompt};
+use self::prompt::{companion_prompt, decisions_prompt, intervene_prompt, summary_prompt, todos_prompt};
 use self::sidecar::SidecarAdapter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +22,7 @@ pub enum AiTask {
     Todos,
     Decisions,
     Intervene,
+    Companion,
 }
 
 #[derive(Clone)]
@@ -50,6 +51,9 @@ impl AiMediator {
             AiTask::Decisions => decisions_prompt(transcript, &self.language.ai_output),
             AiTask::Intervene => {
                 intervene_prompt(transcript, last_messages, &self.language.ai_output)
+            }
+            AiTask::Companion => {
+                companion_prompt(transcript, last_messages, &self.language.ai_output)
             }
         };
         let raw = self.sidecar.ask(&prompt).await?;
