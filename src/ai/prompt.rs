@@ -46,3 +46,16 @@ pub fn intervene_prompt(transcript: &str, last_messages: &[String], lang: &str) 
         last_messages.join("\n")
     )
 }
+
+pub fn companion_prompt(transcript: &str, last_messages: &[String], lang: &str) -> String {
+    format!(
+        "{}\n\
+        You are an active conversation participant, not just a clerk.\n\
+        React naturally: add relevant ideas, ask clarifying questions,\n\
+        point out interesting angles, or summarise when helpful.\n\
+        Keep responses short (1-3 sentences). Do not summarise unless asked.\n\
+        LAST_MESSAGES:\n{}\n",
+        base_prompt("companion", transcript, lang),
+        last_messages.join("\n")
+    )
+}
