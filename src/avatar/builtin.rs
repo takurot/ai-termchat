@@ -180,28 +180,28 @@ impl AvatarPlugin for ClaudeAvatar {
             },
             AvatarSize::Expressive => match state {
                 AvatarState::Idle | AvatarState::Online => {
-                    "╭─────╮\n│ ◕ω◕ │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                    "╭──────╮\n│ ◕ω◕  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
                 }
                 AvatarState::Thinking => {
-                    "╭─────╮\n│ ◉ ◉ │~\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                    "╭──────╮\n│ ◉ ◉  │~\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
                 }
                 AvatarState::Acting => {
-                    "╭─────╮\n│ ☆ω☆ │\n│claude│\n╰──┬──╯\n >>|__\n/>> \\".into()
+                    "╭──────╮\n│ ☆ω☆  │\n│claude│\n╰──┬───╯\n >>|__\n/>>   \\".into()
                 }
                 AvatarState::Failed => {
-                    "╭─────╮\n│ ×_× │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                    "╭──────╮\n│ ×_×  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
                 }
                 AvatarState::Disabled => {
-                    "╭─────╮\n│ ・ー・│\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                    "╭──────╮\n│ ・ー・ │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
                 }
                 AvatarState::Busy => {
-                    "╭─────╮\n│ >ω< │\n│claude│\n╰──┬──╯\n __|__\n/ ! \\".into()
+                    "╭──────╮\n│ >ω<  │\n│claude│\n╰──┬───╯\n __|__\n/ ! \\".into()
                 }
                 AvatarState::Away => {
-                    "╭─────╮\n│ -ω- │\n│claude│\n╰──┬──╯\n __|__\nz/   \\".into()
+                    "╭──────╮\n│ -ω-  │\n│claude│\n╰──┬───╯\n __|__\nz/    \\".into()
                 }
                 AvatarState::Offline => {
-                    "╭─────╮\n│ ._. │\n│claude│\n╰──┬──╯\n __|__\n/     \\".into()
+                    "╭──────╮\n│ ._.  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
                 }
             },
         }
