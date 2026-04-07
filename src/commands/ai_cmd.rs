@@ -47,6 +47,15 @@ fn parse_mode(value: &str) -> Result<AiMode> {
     }
 }
 
+fn parse_frequency(value: &str) -> Result<AiFrequency> {
+    match value {
+        "low" => Ok(AiFrequency::Low),
+        "normal" => Ok(AiFrequency::Normal),
+        "high" => Ok(AiFrequency::High),
+        other => Err(anyhow::anyhow!("unknown ai frequency: {other}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,14 +77,5 @@ mod tests {
         assert!(parse_mode("moderator").is_ok());
         assert!(parse_mode("operator").is_ok());
         assert!(parse_mode("companion").is_ok());
-    }
-}
-
-fn parse_frequency(value: &str) -> Result<AiFrequency> {
-    match value {
-        "low" => Ok(AiFrequency::Low),
-        "normal" => Ok(AiFrequency::Normal),
-        "high" => Ok(AiFrequency::High),
-        other => Err(anyhow::anyhow!("unknown ai frequency: {other}")),
     }
 }
