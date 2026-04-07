@@ -13,7 +13,10 @@ use crate::config::{AiConfig, LanguageConfig};
 use crate::message::AiPayload;
 
 use self::parser::parse_ai_payload;
-use self::prompt::{companion_prompt, decisions_prompt, intervene_prompt, summary_prompt, todos_prompt};
+use self::prompt::{
+    companion_prompt, decisions_prompt, intervene_prompt, mention_prompt, summary_prompt,
+    todos_prompt,
+};
 use self::sidecar::SidecarAdapter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +26,8 @@ pub enum AiTask {
     Decisions,
     Intervene,
     Companion,
+    /// Direct reply to an `@ops-ai` mention. `last_messages[0]` is the verbatim message.
+    Mention,
 }
 
 #[derive(Clone)]
@@ -54,6 +59,10 @@ impl AiMediator {
             }
             AiTask::Companion => {
                 companion_prompt(transcript, last_messages, &self.language.ai_output)
+            }
+            AiTask::Mention => {
+                let message = last_messages.first().map(String::as_str).unwrap_or("");
+                mention_prompt(message, transcript, &self.language.ai_output)
             }
         };
         let raw = self.sidecar.ask(&prompt).await?;

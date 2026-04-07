@@ -43,7 +43,7 @@ impl TriggerConfig {
 
 /// Returns true if `input` contains `@ops-ai` as a standalone mention,
 /// not as part of an email address or a longer token like `@ops-aix`.
-fn contains_ops_ai_mention(input: &str) -> bool {
+pub fn contains_ops_ai_mention(input: &str) -> bool {
     const TAG: &str = "@ops-ai";
     let mut haystack = input;
     while let Some(pos) = haystack.find(TAG) {

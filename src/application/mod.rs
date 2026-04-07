@@ -11,7 +11,7 @@ use message_io::node::{
 };
 
 use crate::action::{Action, Processing};
-use crate::ai::trigger::{should_intervene, TriggerConfig};
+use crate::ai::trigger::{contains_ops_ai_mention, should_intervene, TriggerConfig};
 use crate::ai::{AiMediator, AiTask};
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::{AvatarSize, AvatarState};
@@ -443,12 +443,13 @@ impl<'a> Application<'a> {
                     self.state.human_streak,
                     Instant::now(),
                 ) {
-                    let task = if self.state.ai_mode == AiMode::Companion {
-                        AiTask::Companion
+                    if contains_ops_ai_mention(&input) {
+                        self.spawn_mention_task(input.clone());
+                    } else if self.state.ai_mode == AiMode::Companion {
+                        self.spawn_ai_task(AiTask::Companion);
                     } else {
-                        AiTask::Intervene
-                    };
-                    self.spawn_ai_task(task);
+                        self.spawn_ai_task(AiTask::Intervene);
+                    }
                 }
             }
             Err(error) => error.report_err(&mut self.state),
@@ -666,6 +667,45 @@ impl<'a> Application<'a> {
         let node = self.node.clone();
         let task_handle = self.runtime.handle().spawn(async move {
             match ai_mediator.request(task, &transcript, &last_messages).await {
+                Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
+                Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
+            }
+        });
+        self.state.abort_handle = Some(task_handle.abort_handle());
+    }
+
+    /// Like `spawn_ai_task` but passes `message` as the sole entry in `last_messages`,
+    /// so the AI answers the direct `@ops-ai` question rather than summarising the transcript.
+    fn spawn_mention_task(&mut self, message: String) {
+        let Some(ai_mediator) = self.ai_mediator.clone() else {
+            self.state.add_system_error_message("AI is disabled or sidecar is unavailable".into());
+            return;
+        };
+
+        if let Some(handle) = self.state.abort_handle.take() {
+            handle.abort();
+        }
+
+        self.state.ai_state = AiState::Thinking;
+        self.state.ai_thinking = true;
+        let transcript = self.state.transcript(20);
+        let last_messages = vec![message];
+
+        if self.test_mode {
+            match self.runtime.block_on(ai_mediator.request(
+                AiTask::Mention,
+                &transcript,
+                &last_messages,
+            )) {
+                Ok(payload) => self.record_ai_response(payload, true, None, true),
+                Err(error) => self.process_ai_failure(error.to_string()),
+            }
+            return;
+        }
+
+        let node = self.node.clone();
+        let task_handle = self.runtime.handle().spawn(async move {
+            match ai_mediator.request(AiTask::Mention, &transcript, &last_messages).await {
                 Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
                 Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
             }
