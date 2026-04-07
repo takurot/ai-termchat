@@ -39,6 +39,28 @@ impl TriggerConfig {
     }
 }
 
+/// Returns true if `input` contains `@ops-ai` as a standalone mention,
+/// not as part of an email address or a longer token like `@ops-aix`.
+fn contains_ops_ai_mention(input: &str) -> bool {
+    const TAG: &str = "@ops-ai";
+    let mut haystack = input;
+    while let Some(pos) = haystack.find(TAG) {
+        let before_ok =
+            pos == 0 || haystack[..pos].chars().last().map(|c| !c.is_alphanumeric()).unwrap_or(true);
+        let after_start = pos + TAG.len();
+        let after_ok = haystack[after_start..]
+            .chars()
+            .next()
+            .map(|c| !c.is_alphanumeric() && c != '-')
+            .unwrap_or(true);
+        if before_ok && after_ok {
+            return true;
+        }
+        haystack = &haystack[pos + 1..];
+    }
+    false
+}
+
 pub fn should_intervene(
     input: &str,
     mode: AiMode,
@@ -52,8 +74,9 @@ pub fn should_intervene(
         return false;
     }
 
-    // @ops-ai mention bypasses mode and cooldown checks
-    if input.contains("@ops-ai") {
+    // @ops-ai mention bypasses mode and cooldown checks.
+    // Use word-boundary check to avoid false matches like foo@ops-ai.example or @ops-aix.
+    if contains_ops_ai_mention(input) {
         return true;
     }
 
@@ -138,5 +161,32 @@ mod tests {
         let config = TriggerConfig::default();
         let past = now() - Duration::from_secs(31);
         assert!(!should_intervene("just chatting", AiMode::Clerk, &config, false, Some(past), 0, now()));
+    }
+
+    #[test]
+    fn mention_does_not_trigger_on_email_address() {
+        // foo@ops-ai.example should NOT match — preceded by alphanumeric
+        assert!(!contains_ops_ai_mention("send to foo@ops-ai.example"));
+    }
+
+    #[test]
+    fn mention_does_not_trigger_on_extended_token() {
+        // @ops-aix should NOT match — followed by alphanumeric
+        assert!(!contains_ops_ai_mention("@ops-aix is a different bot"));
+    }
+
+    #[test]
+    fn mention_triggers_at_start_of_string() {
+        assert!(contains_ops_ai_mention("@ops-ai help"));
+    }
+
+    #[test]
+    fn mention_triggers_mid_sentence() {
+        assert!(contains_ops_ai_mention("hey @ops-ai what do you think?"));
+    }
+
+    #[test]
+    fn mention_triggers_at_end_of_string() {
+        assert!(contains_ops_ai_mention("question for @ops-ai"));
     }
 }

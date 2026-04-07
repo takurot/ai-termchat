@@ -415,6 +415,9 @@ impl<'a> Application<'a> {
                     self.state.add_system_error_message(format!("Unknown command: {}", input));
                     return Ok(());
                 }
+                if input.trim().is_empty() {
+                    return Ok(());
+                }
 
                 self.state.add_message(ChatMessage::new(
                     format!("{} (me)", self.config.user_name),
@@ -427,7 +430,10 @@ impl<'a> Application<'a> {
                     );
                 }
                 self.state.human_streak += 1;
-                let trigger = TriggerConfig::from_frequency(self.state.ai_frequency.clone());
+                let trigger = TriggerConfig::from_frequency_and_mode(
+                    self.state.ai_frequency.clone(),
+                    self.state.ai_mode.clone(),
+                );
                 if should_intervene(
                     &input,
                     self.state.ai_mode.clone(),
@@ -437,7 +443,12 @@ impl<'a> Application<'a> {
                     self.state.human_streak,
                     Instant::now(),
                 ) {
-                    self.spawn_ai_task(AiTask::Intervene);
+                    let task = if self.state.ai_mode == AiMode::Companion {
+                        AiTask::Companion
+                    } else {
+                        AiTask::Intervene
+                    };
+                    self.spawn_ai_task(task);
                 }
             }
             Err(error) => error.report_err(&mut self.state),
@@ -562,7 +573,7 @@ impl<'a> Application<'a> {
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
                 self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
+                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator|companion> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
                 );
             }
         }
