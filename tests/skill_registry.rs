@@ -16,6 +16,7 @@ invoke: confirm
 risk: medium
 allowed-tools: [Read, Grep]
 description: 認証ロジックをレビューする
+args_hint: <ticket-id>
 ---
 
 # Review Auth
@@ -47,6 +48,7 @@ fn scan_reads_valid_skills_and_skips_invalid_frontmatter() {
     assert_eq!(skill.invoke_mode, InvokeMode::Confirm);
     assert_eq!(skill.risk, RiskLevel::Medium);
     assert_eq!(skill.allowed_tools, vec!["Read".to_string(), "Grep".to_string()]);
+    assert_eq!(skill.args_hint.as_deref(), Some("<ticket-id>"));
 }
 
 #[test]
@@ -68,4 +70,10 @@ fn missing_skills_directory_returns_empty_registry() {
     let registry = SkillRegistry::scan(workspace.path());
 
     assert!(registry.skills().is_empty());
+}
+
+#[test]
+fn display_labels_are_human_readable() {
+    assert_eq!(InvokeMode::AutoSafe.to_string(), "auto-safe");
+    assert_eq!(RiskLevel::Low.to_string(), "low");
 }

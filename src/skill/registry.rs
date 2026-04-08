@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -23,6 +24,23 @@ pub enum InvokeMode {
     Suggest,
 }
 
+impl InvokeMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Confirm => "confirm",
+            Self::AutoSafe => "auto-safe",
+            Self::Suggest => "suggest",
+        }
+    }
+}
+
+impl fmt::Display for InvokeMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
@@ -30,6 +48,22 @@ pub enum RiskLevel {
     #[default]
     Medium,
     High,
+}
+
+impl RiskLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+impl fmt::Display for RiskLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +74,7 @@ pub struct SkillMeta {
     pub allowed_tools: Vec<String>,
     pub risk: RiskLevel,
     pub description: String,
+    pub args_hint: Option<String>,
     pub path: PathBuf,
 }
 
@@ -117,6 +152,7 @@ impl SkillRegistry {
                 allowed_tools: parsed.allowed_tools.unwrap_or_default(),
                 risk: parsed.risk.unwrap_or_default(),
                 description,
+                args_hint: parsed.args_hint.filter(|hint| !hint.trim().is_empty()),
                 path: skill_path.clone(),
             });
         }
@@ -152,6 +188,8 @@ struct Frontmatter {
     risk: Option<RiskLevel>,
     #[serde(default)]
     description: String,
+    #[serde(default, rename = "args_hint", alias = "args-hint")]
+    args_hint: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

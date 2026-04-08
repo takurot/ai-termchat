@@ -46,7 +46,7 @@ impl Command for RoomCommand {
             "switch" => {
                 let room_id = params
                     .get(1)
-                    .ok_or_else(|| anyhow::anyhow!("usage: /room switch <room_id>"))?;
+                    .ok_or_else(|| anyhow::anyhow!("usage: /room switch <room_id|index>"))?;
                 Ok(ParsedCommand::App(AppCommand::RoomSwitch(room_id.clone())))
             }
             other => Err(anyhow::anyhow!("unknown room command: {other}")),

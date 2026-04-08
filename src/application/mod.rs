@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::encoder::{self, Encoder};
 use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
 use crate::room::transcript::TranscriptEntry;
+use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::state::{
     AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State, Window,
@@ -122,6 +123,7 @@ impl<'a> Application<'a> {
         state.ui_language = config.language.ui.clone();
         state.user_avatar = config.user.avatar.clone();
         state.ai_avatar = config.user.ai_avatar.clone();
+        state.ai_provider = config.ai.provider.clone();
         state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
         state.set_transcript_base_dir(dirs_next::data_dir());
@@ -397,8 +399,20 @@ impl<'a> Application<'a> {
                 KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
                     self.state.scroll_room_list(ScrollMovement::Down);
                 }
-                KeyCode::Up => self.state.messages_scroll(ScrollMovement::Up),
-                KeyCode::Down => self.state.messages_scroll(ScrollMovement::Down),
+                KeyCode::Up => {
+                    if !self.state.input().is_empty() || self.state.in_history_mode() {
+                        self.state.input_history_prev();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Up);
+                    }
+                }
+                KeyCode::Down => {
+                    if self.state.in_history_mode() {
+                        self.state.input_history_next();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Down);
+                    }
+                }
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
                 _ => {}
             },
@@ -492,7 +506,10 @@ impl<'a> Application<'a> {
                     .iter()
                     .find(|peer| !self.state.peer_names().iter().any(|known| known == *peer))
                 {
-                    self.state.add_system_error_message(format!("unknown peer: {}", missing_peer));
+                    self.state.add_system_error_message(format!(
+                        "unknown peer '{}'. Use /peers to see connected peers.",
+                        missing_peer
+                    ));
                     return;
                 }
 
@@ -515,28 +532,43 @@ impl<'a> Application<'a> {
                 self.state.add_system_info_message(format!("created room {}", room.id));
             }
             AppCommand::RoomList => {
-                let room_ids = self.state.room_ids();
-                if room_ids.is_empty() {
+                if self.state.rooms().is_empty() {
                     self.state.add_system_info_message("no rooms".into());
                 } else {
-                    self.state.add_system_info_message(room_ids.join(", "));
+                    self.state.add_system_info_message(self.room_list_text());
                 }
             }
-            AppCommand::RoomSwitch(room_id) => match self.state.switch_room(&room_id) {
-                Ok(()) => self.state.add_system_info_message(format!("switched to {}", room_id)),
-                Err(error) => self.state.add_system_error_message(error.to_string()),
-            },
+            AppCommand::RoomSwitch(target) => {
+                let room_id = self.resolve_room_switch_target(&target).unwrap_or(target);
+                match self.state.switch_room(&room_id) {
+                    Ok(()) => {
+                        if let Some(room) =
+                            self.state.rooms().iter().find(|room| room.id == room_id).cloned()
+                        {
+                            self.state.add_system_info_message(format!(
+                                "Switched to {}",
+                                describe_room(&room)
+                            ));
+                        } else {
+                            self.state.add_system_info_message(format!("Switched to {}", room_id));
+                        }
+                    }
+                    Err(error) => self.state.add_system_error_message(error.to_string()),
+                }
+            }
             AppCommand::Peers => {
                 let peers = self.state.peer_names();
                 if peers.is_empty() {
                     self.state.add_system_info_message("no peers discovered".into());
                 } else {
-                    self.state.add_system_info_message(peers.join(", "));
+                    self.state.add_system_info_message(self.peers_text());
                 }
             }
             AppCommand::Skills => {
                 if self.state.skill_registry().skills().is_empty() {
-                    self.state.add_system_info_message("no skills found".into());
+                    self.state.add_system_info_message(
+                        "No skills found. Add skill scripts to .claude/skills/".into(),
+                    );
                 } else {
                     let mut skills = self
                         .state
@@ -544,13 +576,25 @@ impl<'a> Application<'a> {
                         .skills()
                         .iter()
                         .map(|skill| {
+                            let args = skill
+                                .args_hint
+                                .as_deref()
+                                .map(|hint| format!("  args: {hint}"))
+                                .unwrap_or_default();
                             format!(
-                                "{} | {:?} | {:?} | {}",
-                                skill.name, skill.risk, skill.invoke_mode, skill.description
+                                "{:<20} {:<8} {:<12} {}{}",
+                                skill.name, skill.risk, skill.invoke_mode, skill.description, args
                             )
                         })
                         .collect::<Vec<_>>();
-                    skills.insert(0, "name | risk | mode | description".into());
+                    skills.insert(
+                        0,
+                        format!("{:<20} {:<8} {:<12} {}", "name", "risk", "mode", "description"),
+                    );
+                    skills.insert(
+                        1,
+                        "------------------------------------------------------------".into(),
+                    );
                     self.state.add_system_info_message(skills.join("\n"));
                 }
             }
@@ -573,9 +617,7 @@ impl<'a> Application<'a> {
             AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
-                self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator|companion> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
-                );
+                self.state.add_system_info_message(help_text());
             }
         }
     }
@@ -902,7 +944,7 @@ impl<'a> Application<'a> {
         match meta.invoke_mode {
             InvokeMode::Suggest => {
                 self.state.add_system_info_message(format!(
-                    "skill '{}' is suggest-only and cannot be executed directly",
+                    "Skill '{}' is propose-only: the AI suggests it when relevant,\nbut it cannot be run manually with /skill. Wait for a proposal in the\nstatus panel and use /run <id> to accept.",
                     meta.name
                 ));
             }
@@ -1003,6 +1045,122 @@ impl<'a> Application<'a> {
             let _ = std::fs::write(path, serialized);
         }
     }
+
+    fn room_list_text(&self) -> String {
+        let mut lines = vec![format!("Rooms ({}):", self.state.rooms().len())];
+        for (index, room) in self.state.rooms().iter().enumerate() {
+            let active = self.state.active_room_id() == Some(room.id.as_str());
+            let active_marker = if active { "*" } else { " " };
+            let active_suffix = if active { "  ← active" } else { "" };
+            lines.push(format!(
+                "  {index_num} {active_marker} {room}{active_suffix}",
+                index_num = index + 1,
+                room = describe_room_list_entry(room),
+            ));
+        }
+        lines.join("\n")
+    }
+
+    fn peers_text(&self) -> String {
+        let active_members = self
+            .state
+            .rooms()
+            .iter()
+            .find(|room| self.state.active_room_id() == Some(room.id.as_str()))
+            .map(human_member_names)
+            .unwrap_or_default();
+
+        let mut lines = vec![format!("Connected peers ({}):", self.state.peer_names().len())];
+        for peer in self.state.peer_names() {
+            let status = if active_members.iter().any(|member| member == &peer) {
+                "in room"
+            } else {
+                "available"
+            };
+            lines.push(format!("  {peer}  [{status}]"));
+        }
+        lines.join("\n")
+    }
+
+    fn resolve_room_switch_target(&self, target: &str) -> Option<String> {
+        if let Ok(index) = target.parse::<usize>() {
+            return self.state.rooms().get(index.saturating_sub(1)).map(|room| room.id.clone());
+        }
+        self.state.rooms().iter().find(|room| room.id == target).map(|room| room.id.clone())
+    }
+}
+
+fn describe_room(room: &Room) -> String {
+    format!(
+        "{} [{}] — AI: {}",
+        room.id,
+        human_member_names(room).join(", "),
+        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+    )
+}
+
+fn describe_room_list_entry(room: &Room) -> String {
+    format!(
+        "{} [{}] mode: {}",
+        room.id,
+        human_member_names(room).join(", "),
+        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+    )
+}
+
+fn human_member_names(room: &Room) -> Vec<String> {
+    room.members
+        .iter()
+        .filter(|member| member.kind == MemberKind::Human)
+        .map(|member| member.id.clone())
+        .collect()
+}
+
+fn ai_mode_label(mode: &AiMode) -> &'static str {
+    match mode {
+        AiMode::Clerk => "clerk",
+        AiMode::Listener => "listener",
+        AiMode::Moderator => "moderator",
+        AiMode::Operator => "operator",
+        AiMode::Companion => "companion",
+    }
+}
+
+fn help_text() -> String {
+    [
+        "AI",
+        "/ai mode <clerk|listener|moderator|operator|companion>  Change AI behaviour mode",
+        "/ai quiet <on|off>                                     Mute/unmute AI responses",
+        "/ai freq <low|normal|high>                             Adjust AI intervention frequency",
+        "",
+        "Summary",
+        "/summary   Summarise the conversation",
+        "/todos     List action items",
+        "/decisions List decisions made",
+        "/context   Summarise context",
+        "",
+        "Rooms",
+        "/room create @user [--ai <mode>]  Create a room with peers",
+        "/room list                        List all rooms",
+        "/room switch <room_id>            Switch active room",
+        "/peers                            List connected peers",
+        "",
+        "Skills",
+        "/skills               List available skills",
+        "/skill <name> [args]  Run a skill",
+        "/run <proposal_id>    Accept a skill proposal",
+        "/cancel               Cancel pending skill",
+        "",
+        "Avatar",
+        "/avatar set <target> <preset>             Set avatar preset",
+        "/avatar preview                           Preview your avatar",
+        "/avatar mode <compact|normal|expressive>  Set avatar size",
+        "/avatar list                              List available presets",
+        "",
+        "Files",
+        "/send <file>  Send a file to peers",
+    ]
+    .join("\n")
 }
 
 impl Drop for Application<'_> {
