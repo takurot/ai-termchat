@@ -122,6 +122,7 @@ impl<'a> Application<'a> {
         state.ui_language = config.language.ui.clone();
         state.user_avatar = config.user.avatar.clone();
         state.ai_avatar = config.user.ai_avatar.clone();
+        state.ai_provider = config.ai.provider.clone();
         state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
         state.set_transcript_base_dir(dirs_next::data_dir());

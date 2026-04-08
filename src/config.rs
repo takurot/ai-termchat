@@ -117,15 +117,70 @@ impl Default for UserConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AiProvider {
+    Claude,
+    Codex,
+    Gemini,
+    Custom,
+}
+
+impl Default for AiProvider {
+    fn default() -> Self {
+        Self::Claude
+    }
+}
+
+impl AiProvider {
+    pub fn invocation(&self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Self::Claude => ("claude", &["-p"]),
+            Self::Codex => ("codex", &["exec"]),
+            Self::Gemini => ("gemini", &["-p"]),
+            Self::Custom => ("", &[]),
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiConfig {
     pub enabled: bool,
+    #[serde(default)]
+    pub provider: AiProvider,
     pub command: Option<String>,
     pub timeout_secs: u64,
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self { enabled: true, command: None, timeout_secs: 30 }
+        Self { enabled: true, provider: AiProvider::Claude, command: None, timeout_secs: 30 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AiConfig, AiProvider};
+
+    #[test]
+    fn provider_invocation_matches_supported_clis() {
+        assert_eq!(AiProvider::Claude.invocation(), ("claude", &["-p"][..]));
+        assert_eq!(AiProvider::Codex.invocation(), ("codex", &["exec"][..]));
+        assert_eq!(AiProvider::Gemini.invocation(), ("gemini", &["-p"][..]));
+        assert_eq!(AiProvider::Custom.invocation(), ("", &[][..]));
+    }
+
+    #[test]
+    fn ai_config_defaults_to_claude_provider() {
+        assert_eq!(AiConfig::default().provider, AiProvider::Claude);
     }
 }
 
