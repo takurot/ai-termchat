@@ -1,11 +1,9 @@
-use tui::backend::CrosstermBackend;
+use tui::backend::Backend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, Paragraph};
 use tui::Frame;
-
-use std::io::Write;
 
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::{AvatarSize, AvatarState};
@@ -18,7 +16,7 @@ use crate::ui::layout::truncate;
 /// When the terminal is too narrow this function should not be called — the
 /// caller is responsible for the visibility decision (see `layout::should_show_side_panels`).
 pub fn draw_peers_panel(
-    frame: &mut Frame<CrosstermBackend<impl Write>>,
+    frame: &mut Frame<impl Backend>,
     state: &State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
@@ -38,7 +36,10 @@ pub fn draw_peers_panel(
         ),
     ]));
 
-    for (peer_name, avatar_preset) in state.peer_info_list() {
+    let remote_peers = state.peer_info_list();
+    let remote_peer_count = remote_peers.len();
+
+    for (peer_name, avatar_preset) in remote_peers {
         let preset = if avatar_preset.is_empty() { "human_default" } else { &avatar_preset };
         let av = avatar_manager.render(preset, AvatarState::Online, AvatarSize::Compact);
         lines.push(Spans::from(vec![
@@ -48,7 +49,7 @@ pub fn draw_peers_panel(
         ]));
     }
 
-    if lines.len() == 2 {
+    if remote_peer_count == 0 {
         lines.push(Spans::from(Span::styled(
             "(no other peers)",
             Style::default().fg(Color::DarkGray),
