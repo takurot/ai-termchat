@@ -397,8 +397,20 @@ impl<'a> Application<'a> {
                 KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
                     self.state.scroll_room_list(ScrollMovement::Down);
                 }
-                KeyCode::Up => self.state.messages_scroll(ScrollMovement::Up),
-                KeyCode::Down => self.state.messages_scroll(ScrollMovement::Down),
+                KeyCode::Up => {
+                    if !self.state.input().is_empty() || self.state.in_history_mode() {
+                        self.state.input_history_prev();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Up);
+                    }
+                }
+                KeyCode::Down => {
+                    if self.state.in_history_mode() {
+                        self.state.input_history_next();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Down);
+                    }
+                }
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
                 _ => {}
             },
