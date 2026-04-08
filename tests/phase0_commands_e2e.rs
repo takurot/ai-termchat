@@ -132,6 +132,42 @@ fn slash_commands_are_not_included_in_transcript() {
 }
 
 #[test]
+fn help_command_groups_commands_with_descriptions() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/help").unwrap();
+
+    let rendered = app
+        .state()
+        .messages()
+        .iter()
+        .map(|message| message.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("AI"));
+    assert!(rendered.contains("Summary"));
+    assert!(rendered.contains("Rooms"));
+    assert!(rendered.contains("Skills"));
+    assert!(rendered.contains("Avatar"));
+    assert!(rendered.contains("Files"));
+    assert!(rendered.contains("Change AI behaviour mode"));
+    assert!(rendered.contains("Summarise the conversation"));
+    assert!(rendered.contains("Create a room with peers"));
+    assert!(rendered.contains("Set avatar preset"));
+    assert!(rendered.contains("Send a file to peers"));
+    assert!(rendered.contains("/ai mode <clerk|listener|moderator|operator|companion>"));
+    assert!(rendered.contains("/room switch <room_id>"));
+    assert!(rendered.contains("Switch active room"));
+    assert!(rendered.contains("/skill <name> [args]"));
+    assert!(rendered.contains("Run a skill"));
+    assert!(rendered.contains("/send <file>"));
+    assert!(rendered.contains('\n'));
+}
+
+#[test]
 fn room_create_unknown_peer_points_to_peers_command() {
     let mut config = Config::default();
     config.ai.enabled = false;
