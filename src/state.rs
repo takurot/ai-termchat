@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
 use crate::avatar::AvatarSize;
+use crate::config::AiProvider;
 use crate::message::{AiPayload, PeerInfo, StructuredOutput};
 use crate::room::transcript::{TranscriptEntry, TranscriptWriter};
 use crate::room::{Room, RoomEngine};
@@ -129,6 +130,7 @@ pub struct State {
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
+    pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
     pub ai_thinking: bool,
     pub abort_handle: Option<AbortHandle>,
@@ -170,6 +172,7 @@ impl Default for State {
             stop_stream: false,
             windows: HashMap::new(),
             ai_state: AiState::Idle,
+            ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
             ai_thinking: false,
             abort_handle: None,

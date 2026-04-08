@@ -4,12 +4,13 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::process::Command;
 
-use crate::config::AiConfig;
+use crate::config::{AiConfig, AiProvider};
 
 #[derive(Clone, Debug)]
 pub struct SidecarAdapter {
     workspace: PathBuf,
     command: PathBuf,
+    prefix_args: Vec<String>,
     timeout: Duration,
 }
 
@@ -18,10 +19,13 @@ impl SidecarAdapter {
         let timeout = Duration::from_secs(config.timeout_secs.max(1));
         let command = if let Some(command) = &config.command {
             resolve_command(command)?
+        } else if let Some(default_command) = config.provider.default_command() {
+            which::which(default_command)
+                .with_context(|| format!("{default_command} command was not found in PATH"))?
         } else {
-            which::which("claude").context("claude command was not found in PATH")?
+            bail!("ai provider 'custom' requires ai.command to be set");
         };
-        Self::from_command(workspace, command, timeout)
+        Self::from_command_with_provider(workspace, command, config.provider.clone(), timeout)
     }
 
     pub fn from_command(
@@ -29,11 +33,25 @@ impl SidecarAdapter {
         command: impl Into<PathBuf>,
         timeout: Duration,
     ) -> Result<Self> {
+        Self::from_command_with_provider(workspace, command, AiProvider::Claude, timeout)
+    }
+
+    fn from_command_with_provider(
+        workspace: &Path,
+        command: impl Into<PathBuf>,
+        provider: AiProvider,
+        timeout: Duration,
+    ) -> Result<Self> {
         let command = command.into();
         if !command.exists() {
             bail!("sidecar command does not exist: {}", command.display());
         }
-        Ok(Self { workspace: workspace.to_path_buf(), command, timeout })
+        Ok(Self {
+            workspace: workspace.to_path_buf(),
+            command,
+            prefix_args: provider.prefix_args().iter().map(|arg| (*arg).to_string()).collect(),
+            timeout,
+        })
     }
 
     pub async fn ask(&self, prompt: &str) -> Result<String> {
@@ -50,8 +68,8 @@ impl SidecarAdapter {
         let output = tokio::time::timeout(timeout, async {
             Command::new(&self.command)
                 .current_dir(&self.workspace)
-                .arg("-p")
-                .arg(prompt)
+                .args(&self.prefix_args)
+                .arg(&prompt)
                 .output()
                 .await
         })
@@ -82,4 +100,70 @@ fn resolve_command(command: &str) -> Result<PathBuf> {
         return Ok(path);
     }
     which::which(command).with_context(|| format!("{command} command was not found in PATH"))
+}
+
+impl AiProvider {
+    pub fn default_command(&self) -> Option<&'static str> {
+        let (command, _) = self.invocation();
+        (!command.is_empty()).then_some(command)
+    }
+
+    pub fn prefix_args(&self) -> &'static [&'static str] {
+        let (_, prefix_args) = self.invocation();
+        prefix_args
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn write_script(dir: &TempDir, name: &str) -> std::path::PathBuf {
+        let path = dir.path().join(name);
+        fs::write(&path, "#!/bin/sh\nprintf 'ok\\n'\n").unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+        path
+    }
+
+    #[test]
+    fn provider_prefix_args_match_invocation() {
+        for provider in
+            [AiProvider::Claude, AiProvider::Codex, AiProvider::Gemini, AiProvider::Custom]
+        {
+            let (_, prefix_args) = provider.invocation();
+            assert_eq!(provider.prefix_args(), prefix_args);
+        }
+    }
+
+    #[test]
+    fn new_uses_provider_specific_prefix_args() {
+        let dir = TempDir::new().unwrap();
+        let script = write_script(&dir, "mock-ai.sh");
+        let config = AiConfig {
+            enabled: true,
+            provider: AiProvider::Codex,
+            command: Some(script.display().to_string()),
+            timeout_secs: 1,
+        };
+
+        let adapter = SidecarAdapter::new(dir.path(), &config).unwrap();
+        assert_eq!(adapter.prefix_args, vec!["exec".to_string()]);
+    }
+
+    #[test]
+    fn from_command_defaults_to_claude_prefix_args() {
+        let dir = TempDir::new().unwrap();
+        let script = write_script(&dir, "mock-ai.sh");
+
+        let adapter =
+            SidecarAdapter::from_command(dir.path(), script, Duration::from_secs(1)).unwrap();
+        assert_eq!(adapter.prefix_args, vec!["-p".to_string()]);
+    }
 }
