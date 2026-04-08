@@ -73,3 +73,67 @@ fn peer_handshake_and_room_create_propagates() {
         Some("takuro")
     );
 }
+
+#[test]
+fn room_and_peer_commands_show_richer_metadata() {
+    let discovery_port = 39000 + (rand::random::<u16>() % 1000);
+    let takuro_config = test_config("takuro", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port);
+    let sato_config = test_config("sato", discovery_port);
+    let mut takuro = Application::new_for_test(&takuro_config).unwrap();
+    let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
+    let mut sato = Application::new_for_test(&sato_config).unwrap();
+
+    takuro.start_network_for_test().unwrap();
+    tanaka.start_network_for_test().unwrap();
+    sato.start_network_for_test().unwrap();
+    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
+    takuro.connect_peer_for_test(sato.local_server_port_for_test().unwrap()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        if takuro.state().peers().len() == 2 && tanaka.state().peers().len() == 1 {
+            break;
+        }
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = sato.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+
+    assert_eq!(
+        takuro.state().peers().len(),
+        2,
+        "takuro peers: {:?}",
+        takuro.state().peers().values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>()
+    );
+
+    takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+        left.state().rooms().len() == 1
+            && right.state().rooms().len() == 1
+            && left.state().active_room_id() == right.state().active_room_id()
+    });
+
+    takuro.handle_input_line_for_test("/peers").unwrap();
+    takuro.handle_input_line_for_test("/room list").unwrap();
+    takuro.handle_input_line_for_test("/room switch 1").unwrap();
+
+    let rendered = takuro
+        .state()
+        .messages()
+        .iter()
+        .map(|message| message.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Connected peers (2):"), "{rendered}");
+    assert!(rendered.contains("tanaka  [in room]"), "{rendered}");
+    assert!(rendered.contains("sato  [available]"), "{rendered}");
+    assert!(rendered.contains("Rooms (1):"), "{rendered}");
+    assert!(rendered.contains("1"), "{rendered}");
+    assert!(rendered.contains("room-1"), "{rendered}");
+    assert!(rendered.contains("mode: clerk"), "{rendered}");
+    assert!(rendered.contains("active"), "{rendered}");
+    assert!(rendered.contains("Switched to room-1 [takuro, tanaka]"), "{rendered}");
+    assert!(rendered.contains("AI: clerk"), "{rendered}");
+}

@@ -370,6 +370,7 @@ impl State {
     pub fn peer_names(&self) -> Vec<String> {
         let mut peers = self.peers.values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>();
         peers.sort();
+        peers.dedup();
         peers
     }
 
@@ -394,8 +395,16 @@ impl State {
         self.room_engine.rooms()
     }
 
+    pub fn active_room(&self) -> Option<&Room> {
+        self.room_engine.active_room()
+    }
+
     pub fn active_room_id(&self) -> Option<&str> {
         self.room_engine.active_room_id()
+    }
+
+    pub fn resolve_room(&self, target: &str) -> Option<&Room> {
+        self.room_engine.resolve_room(target)
     }
 
     pub fn switch_room(&mut self, room_id: &str) -> anyhow::Result<()> {

@@ -66,9 +66,16 @@ impl RoomEngine {
         self.active_room_id.as_deref()
     }
 
+    pub fn resolve_room(&self, target: &str) -> Option<&Room> {
+        if let Ok(index) = target.parse::<usize>() {
+            return index.checked_sub(1).and_then(|idx| self.rooms.get(idx));
+        }
+        self.rooms.iter().find(|room| room.id == target)
+    }
+
     pub fn switch_active(&mut self, room_id: &str) -> anyhow::Result<()> {
-        if self.rooms.iter().any(|room| room.id == room_id) {
-            self.active_room_id = Some(room_id.to_string());
+        if let Some(room) = self.resolve_room(room_id) {
+            self.active_room_id = Some(room.id.clone());
             Ok(())
         } else {
             Err(anyhow::anyhow!("unknown room id: {room_id}"))

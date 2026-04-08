@@ -130,3 +130,16 @@ fn slash_commands_are_not_included_in_transcript() {
     assert!(transcript.contains("auth serviceに切り出したい"));
     assert!(!transcript.contains("/summary"));
 }
+
+#[test]
+fn room_create_unknown_peer_points_to_peers_command() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/room create @carol").unwrap();
+
+    let rendered = app.state().messages().last().expect("unknown peer message").rendered_text();
+
+    assert_eq!(rendered, "unknown peer 'carol'. Use /peers to see connected peers.");
+}
