@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn collect_peer_info_filters_local_and_deduplicates() {
         let local_user = "alice";
-        let peers = vec![
+        let peers = [
             PeerInfo {
                 user_name: "bob".into(),
                 avatar: "neko".into(),
