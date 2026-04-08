@@ -30,10 +30,13 @@ async fn sidecar_returns_stdout() {
         "mock-claude.sh",
         "#!/bin/sh\ncat <<'EOF'\nINTENT: Summary\nTEXT: mock summary\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\nEOF\n",
     );
-    let adapter = SidecarAdapter::from_command(dir.path(), script, Duration::from_secs(1))
+    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(1))
         .expect("adapter should be created");
 
-    let output = adapter.ask("hello").await.expect("sidecar should succeed");
+    let output = adapter
+        .ask(script.to_str().expect("script path should be utf-8"))
+        .await
+        .expect("sidecar should succeed");
     assert!(output.contains("mock summary"));
 }
 
@@ -41,10 +44,13 @@ async fn sidecar_returns_stdout() {
 async fn sidecar_times_out() {
     let dir = TempDir::new().unwrap();
     let script = write_script(&dir, "slow-claude.sh", "#!/bin/sh\nsleep 2\nprintf 'late'\n");
-    let adapter = SidecarAdapter::from_command(dir.path(), script, Duration::from_millis(100))
+    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_millis(100))
         .expect("adapter should be created");
 
-    let error = adapter.ask("hello").await.expect_err("sidecar should time out");
+    let error = adapter
+        .ask(script.to_str().expect("script path should be utf-8"))
+        .await
+        .expect_err("sidecar should time out");
     assert!(error.to_string().contains("timed out"));
 }
 

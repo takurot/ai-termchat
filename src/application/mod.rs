@@ -31,7 +31,8 @@ use crate::room::transcript::TranscriptEntry;
 use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::state::{
-    AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State, Window,
+    AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State,
+    Window,
 };
 use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
 use crate::skill::registry::{InvokeMode, RiskLevel};
@@ -426,7 +427,10 @@ impl<'a> Application<'a> {
             Ok(Some(ParsedCommand::App(command))) => self.process_app_command(command),
             Ok(None) => {
                 if input.starts_with(CommandManager::COMMAND_PREFIX) {
-                    self.state.add_system_error_message(format!("Unknown command: {}", input));
+                    self.state.add_system_error_message(format!(
+                        "Unknown command '{}'. Type /help for available commands.",
+                        input
+                    ));
                     return Ok(());
                 }
                 if input.trim().is_empty() {
@@ -483,8 +487,10 @@ impl<'a> Application<'a> {
             },
             AppCommand::SetAiMode(mode) => {
                 self.state.ai_mode = mode;
-                self.state
-                    .add_system_info_message(format!("AI mode set to {:?}", self.state.ai_mode));
+                self.state.add_system_info_message(format!(
+                    "AI mode set to {}",
+                    ai_mode_label(&self.state.ai_mode)
+                ));
             }
             AppCommand::SetAiQuiet(enabled) => {
                 self.state.ai_mode = if enabled { AiMode::Listener } else { AiMode::Clerk };
@@ -497,8 +503,8 @@ impl<'a> Application<'a> {
             AppCommand::SetAiFrequency(frequency) => {
                 self.state.ai_frequency = frequency;
                 self.state.add_system_info_message(format!(
-                    "AI frequency set to {:?}",
-                    self.state.ai_frequency
+                    "AI frequency set to {}",
+                    ai_frequency_label(&self.state.ai_frequency)
                 ));
             }
             AppCommand::RoomCreate { peers, ai_mode } => {
@@ -1083,7 +1089,10 @@ impl<'a> Application<'a> {
 
     fn resolve_room_switch_target(&self, target: &str) -> Option<String> {
         if let Ok(index) = target.parse::<usize>() {
-            return self.state.rooms().get(index.saturating_sub(1)).map(|room| room.id.clone());
+            return index
+                .checked_sub(1)
+                .and_then(|idx| self.state.rooms().get(idx))
+                .map(|room| room.id.clone());
         }
         self.state.rooms().iter().find(|room| room.id == target).map(|room| room.id.clone())
     }
@@ -1113,16 +1122,6 @@ fn human_member_names(room: &Room) -> Vec<String> {
         .filter(|member| member.kind == MemberKind::Human)
         .map(|member| member.id.clone())
         .collect()
-}
-
-fn ai_mode_label(mode: &AiMode) -> &'static str {
-    match mode {
-        AiMode::Clerk => "clerk",
-        AiMode::Listener => "listener",
-        AiMode::Moderator => "moderator",
-        AiMode::Operator => "operator",
-        AiMode::Companion => "companion",
-    }
 }
 
 fn help_text() -> String {
@@ -1168,6 +1167,24 @@ impl Drop for Application<'_> {
             handle.abort();
         }
         self.node.stop();
+    }
+}
+
+fn ai_mode_label(mode: &AiMode) -> &'static str {
+    match mode {
+        AiMode::Clerk => "clerk",
+        AiMode::Listener => "listener",
+        AiMode::Moderator => "moderator",
+        AiMode::Operator => "operator",
+        AiMode::Companion => "companion",
+    }
+}
+
+fn ai_frequency_label(frequency: &AiFrequency) -> &'static str {
+    match frequency {
+        AiFrequency::Low => "low",
+        AiFrequency::Normal => "normal",
+        AiFrequency::High => "high",
     }
 }
 

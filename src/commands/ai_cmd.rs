@@ -30,7 +30,7 @@ impl Command for AiCommand {
                 Ok(ParsedCommand::App(AppCommand::SetAiFrequency(frequency)))
             }
             _ => Err(anyhow::anyhow!(
-                "usage: /ai mode <clerk|listener|moderator|operator|companion> | /ai quiet <on|off> | /ai freq <low|normal|high>"
+                "usage: /ai mode <mode>\n  clerk      - responds to decisions and task markers\n  listener   - silent; never auto-intervenes\n  moderator  - intervenes on ambiguous or contradictory messages\n  operator   - responds to execute, deploy, or run requests\n  companion  - chats actively and replies to direct prompts\nusage: /ai quiet <on|off>\nusage: /ai freq <low|normal|high>"
             )),
         }
     }
@@ -59,6 +59,7 @@ fn parse_frequency(value: &str) -> Result<AiFrequency> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::Command;
 
     #[test]
     fn parse_mode_companion_returns_companion() {
@@ -77,5 +78,19 @@ mod tests {
         assert!(parse_mode("moderator").is_ok());
         assert!(parse_mode("operator").is_ok());
         assert!(parse_mode("companion").is_ok());
+    }
+
+    #[test]
+    fn parse_params_error_describes_available_modes() {
+        let error = AiCommand
+            .parse_params(vec!["wat".into()])
+            .err()
+            .expect("invalid subcommand should error");
+
+        assert!(error.to_string().contains("usage: /ai mode <mode>"));
+        assert!(error.to_string().contains("clerk"));
+        assert!(error.to_string().contains("listener"));
+        assert!(error.to_string().contains("moderator"));
+        assert!(error.to_string().contains("operator"));
     }
 }
