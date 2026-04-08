@@ -24,7 +24,6 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[tokio::test]
 async fn sidecar_returns_stdout() {
-    let _guard = env_lock();
     let dir = TempDir::new().unwrap();
     let script = write_script(
         &dir,
@@ -40,7 +39,6 @@ async fn sidecar_returns_stdout() {
 
 #[tokio::test]
 async fn sidecar_times_out() {
-    let _guard = env_lock();
     let dir = TempDir::new().unwrap();
     let script = write_script(&dir, "slow-claude.sh", "#!/bin/sh\nsleep 2\nprintf 'late'\n");
     let adapter = SidecarAdapter::from_command(dir.path(), script, Duration::from_millis(100))
@@ -87,7 +85,6 @@ fn configured_sidecar_command_can_be_resolved_from_path() {
 
 #[test]
 fn ai_config_without_provider_defaults_to_claude() {
-    let _guard = env_lock();
     let config: AiConfig =
         toml::from_str("enabled = true\ntimeout_secs = 30").expect("config should parse");
 
@@ -96,7 +93,6 @@ fn ai_config_without_provider_defaults_to_claude() {
 
 #[test]
 fn custom_provider_requires_command() {
-    let _guard = env_lock();
     let dir = TempDir::new().unwrap();
     let config =
         AiConfig { enabled: true, provider: AiProvider::Custom, command: None, timeout_secs: 1 };
@@ -105,20 +101,19 @@ fn custom_provider_requires_command() {
     assert!(error.to_string().contains("requires"));
 }
 
-fn capture_args_script(dir: &TempDir) -> std::path::PathBuf {
+fn capture_args_script(dir: &TempDir, args_file: &std::path::Path) -> std::path::PathBuf {
     write_script(
         dir,
         "capture.sh",
-        "#!/bin/sh\nprintf '%s\n' \"$@\" > \"$CAPTURE_ARGS_FILE\"\nprintf 'ok'\n",
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf 'ok'\n", args_file.display()),
     )
 }
 
 #[tokio::test]
 async fn provider_invocation_uses_provider_specific_args() {
-    let _guard = env_lock();
     let dir = TempDir::new().unwrap();
-    let script = capture_args_script(&dir);
     let args_file = dir.path().join("args.txt");
+    let script = capture_args_script(&dir, &args_file);
 
     let cases = [
         (AiProvider::Claude, vec!["-p", "hello world"]),
@@ -127,7 +122,6 @@ async fn provider_invocation_uses_provider_specific_args() {
     ];
 
     for (provider, expected_args) in cases {
-        std::env::set_var("CAPTURE_ARGS_FILE", &args_file);
         let config = AiConfig {
             enabled: true,
             provider,
@@ -143,6 +137,4 @@ async fn provider_invocation_uses_provider_specific_args() {
         let captured_args = captured.lines().collect::<Vec<_>>();
         assert_eq!(captured_args, expected_args);
     }
-
-    std::env::remove_var("CAPTURE_ARGS_FILE");
 }
