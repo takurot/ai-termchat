@@ -573,9 +573,7 @@ impl<'a> Application<'a> {
             AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
-                self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator|companion> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
-                );
+                self.state.add_system_info_message(help_text());
             }
         }
     }
@@ -1002,6 +1000,43 @@ impl<'a> Application<'a> {
             let _ = std::fs::write(path, serialized);
         }
     }
+}
+
+fn help_text() -> String {
+    [
+        "AI",
+        "/ai mode <clerk|listener|moderator|operator|companion>  Change AI behaviour mode",
+        "/ai quiet <on|off>                                     Mute/unmute AI responses",
+        "/ai freq <low|normal|high>                             Adjust AI intervention frequency",
+        "",
+        "Summary",
+        "/summary   Summarise the conversation",
+        "/todos     List action items",
+        "/decisions List decisions made",
+        "/context   Summarise context",
+        "",
+        "Rooms",
+        "/room create @user [--ai <mode>]  Create a room with peers",
+        "/room list                        List all rooms",
+        "/room switch <room_id>            Switch active room",
+        "/peers                            List connected peers",
+        "",
+        "Skills",
+        "/skills               List available skills",
+        "/skill <name> [args]  Run a skill",
+        "/run <proposal_id>    Accept a skill proposal",
+        "/cancel               Cancel pending skill",
+        "",
+        "Avatar",
+        "/avatar set <target> <preset>             Set avatar preset",
+        "/avatar preview                           Preview your avatar",
+        "/avatar mode <compact|normal|expressive>  Set avatar size",
+        "/avatar list                              List available presets",
+        "",
+        "Files",
+        "/send <file>  Send a file to peers",
+    ]
+    .join("\n")
 }
 
 impl Drop for Application<'_> {
