@@ -16,6 +16,7 @@ use tui::Frame;
 
 use std::io::Write;
 
+use crate::avatar::loader::AvatarManager;
 use crate::commands::CommandManager;
 use crate::config::{LanguageConfig, Theme};
 use crate::state::{MessageType, ProgressState, State, SystemMessageType, Window};
@@ -32,6 +33,7 @@ pub fn draw(
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
+    avatar_manager: &AvatarManager,
 ) {
     // Outer vertical split: [upper(min), input(6)]
     let v_chunks = Layout::default()
@@ -70,7 +72,7 @@ pub fn draw(
             .constraints(layout::right_column_constraints())
             .split(h_chunks[1]);
 
-        draw_peers_panel(frame, state, left_chunks[0]);
+        draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
         draw_room_list_panel(
             frame,
             state.rooms(),
@@ -90,7 +92,7 @@ pub fn draw(
             draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
 
-        draw_status_panel(frame, state, right_chunks[1]);
+        draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     } else {
         // ── Narrow layout: chat above, ops-ai below ─────────────────────────
         let right_chunks = Layout::default()
@@ -109,7 +111,7 @@ pub fn draw(
             draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
 
-        draw_status_panel(frame, state, right_chunks[1]);
+        draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     }
 
     draw_input_panel(frame, state, v_chunks[1], theme);

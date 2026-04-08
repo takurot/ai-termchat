@@ -7,8 +7,8 @@ use tui::Frame;
 
 use std::io::Write;
 
-use crate::avatar::builtin::render_ai;
-use crate::avatar::{AvatarSize, AvatarState};
+use crate::avatar::loader::AvatarManager;
+use crate::avatar::AvatarState;
 use crate::state::{AiMode, AiState, SkillProposal, State};
 use crate::ui::layout::truncate;
 
@@ -20,9 +20,10 @@ pub fn draw_status_panel(
     frame: &mut Frame<CrosstermBackend<impl Write>>,
     state: &State,
     chunk: Rect,
+    avatar_manager: &AvatarManager,
 ) {
     let avatar_state = ai_state_to_avatar_state(&state.ai_state);
-    let av_art = render_ai(avatar_state, AvatarSize::Normal);
+    let av_art = avatar_manager.render(&state.ai_avatar, avatar_state, state.avatar_size);
 
     let mut lines: Vec<Spans> = Vec::new();
 

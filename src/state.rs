@@ -344,6 +344,7 @@ impl State {
             user_name: user.into(),
             server_port: 0,
             node_version: "unknown".into(),
+            avatar: "human_default".into(),
         });
         if !self.users_id.contains_key(user) {
             self.users_id.insert(user.into(), self.last_user_id);
@@ -370,6 +371,16 @@ impl State {
     pub fn peer_names(&self) -> Vec<String> {
         let mut peers = self.peers.values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>();
         peers.sort();
+        peers
+    }
+
+    pub fn peer_info_list(&self) -> Vec<(String, String)> {
+        let mut peers = self
+            .peers
+            .values()
+            .map(|peer| (peer.user_name.clone(), peer.avatar.clone()))
+            .collect::<Vec<_>>();
+        peers.sort_by(|a, b| a.0.cmp(&b.0));
         peers
     }
 
