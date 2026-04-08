@@ -6,6 +6,7 @@ fn peer_info_round_trips_through_bincode() {
         user_name: "takuro".into(),
         server_port: 4000,
         node_version: "0.1.0".into(),
+        avatar: "neko".into(),
     });
 
     let encoded = bincode::serialize(&message).expect("message should serialize");
@@ -16,6 +17,7 @@ fn peer_info_round_trips_through_bincode() {
             assert_eq!(info.user_name, "takuro");
             assert_eq!(info.server_port, 4000);
             assert_eq!(info.node_version, "0.1.0");
+            assert_eq!(info.avatar, "neko");
         }
         other => panic!("unexpected message: {:?}", other),
     }

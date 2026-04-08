@@ -1,11 +1,9 @@
-use tui::backend::CrosstermBackend;
+use tui::backend::Backend;
 use tui::layout::Rect;
 use tui::style::{Modifier, Style};
 use tui::text::Span;
 use tui::widgets::{Block, Borders, Paragraph};
 use tui::Frame;
-
-use std::io::Write;
 
 use crate::room::Room;
 use crate::ui::layout::truncate;
@@ -70,7 +68,7 @@ pub fn build_room_lines(rooms: &[Room], active_id: Option<&str>, scroll: usize) 
 }
 
 pub fn draw_room_list_panel(
-    frame: &mut Frame<CrosstermBackend<impl Write>>,
+    frame: &mut Frame<impl Backend>,
     rooms: &[Room],
     active_id: Option<&str>,
     scroll: usize,

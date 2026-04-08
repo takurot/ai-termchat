@@ -70,6 +70,8 @@ pub struct PeerInfo {
     pub user_name: String,
     pub server_port: u16,
     pub node_version: String,
+    #[serde(default)]
+    pub avatar: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

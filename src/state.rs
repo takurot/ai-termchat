@@ -353,6 +353,7 @@ impl State {
             user_name: user.into(),
             server_port: 0,
             node_version: "unknown".into(),
+            avatar: "human_default".into(),
         });
         if !self.users_id.contains_key(user) {
             self.users_id.insert(user.into(), self.last_user_id);
@@ -381,6 +382,23 @@ impl State {
         peers.sort();
         peers.dedup();
         peers
+    }
+
+    pub fn peer_info_list(&self) -> Vec<(String, String)> {
+        Self::collect_peer_info(&self.local_user_name, self.peers.values())
+    }
+
+    fn collect_peer_info<'a>(
+        local_user_name: &str,
+        peers: impl Iterator<Item = &'a PeerInfo>,
+    ) -> Vec<(String, String)> {
+        let mut list = peers
+            .filter(|peer| peer.user_name != local_user_name)
+            .map(|peer| (peer.user_name.clone(), peer.avatar.clone()))
+            .collect::<Vec<_>>();
+        list.sort_by(|a, b| a.0.cmp(&b.0));
+        list.dedup_by(|a, b| a.0 == b.0);
+        list
     }
 
     pub fn peers(&self) -> &HashMap<Endpoint, PeerInfo> {
@@ -887,5 +905,42 @@ mod tests {
         s.input_history_prev();
 
         assert_eq!(s.input_cursor, 5);
+    }
+
+    #[test]
+    fn collect_peer_info_filters_local_and_deduplicates() {
+        let local_user = "alice";
+        let peers = [
+            PeerInfo {
+                user_name: "bob".into(),
+                avatar: "neko".into(),
+                server_port: 0,
+                node_version: "".into(),
+            },
+            PeerInfo {
+                user_name: "alice".into(),
+                avatar: "human".into(),
+                server_port: 0,
+                node_version: "".into(),
+            },
+            PeerInfo {
+                user_name: "bob".into(),
+                avatar: "neko".into(),
+                server_port: 1,
+                node_version: "".into(),
+            },
+            PeerInfo {
+                user_name: "charlie".into(),
+                avatar: "claude".into(),
+                server_port: 0,
+                node_version: "".into(),
+            },
+        ];
+
+        let result = State::collect_peer_info(local_user, peers.iter());
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ("bob".into(), "neko".into()));
+        assert_eq!(result[1], ("charlie".into(), "claude".into()));
     }
 }

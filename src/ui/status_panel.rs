@@ -5,20 +5,26 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, Paragraph};
 use tui::Frame;
 
-use crate::avatar::builtin::render_ai;
-use crate::avatar::{AvatarSize, AvatarState};
+use crate::avatar::loader::AvatarManager;
+use crate::avatar::AvatarState;
 use crate::config::AiProvider;
 use crate::state::{AiMode, AiState, SkillProposal, State};
 use crate::ui::layout::truncate;
 
 /// Draws the ops-ai status panel below chat.
-pub fn draw_status_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect) {
+pub fn draw_status_panel(
+    frame: &mut Frame<impl Backend>,
+    state: &State,
+    chunk: Rect,
+    avatar_manager: &AvatarManager,
+) {
     let inner_width = chunk.width.saturating_sub(2);
     let avatar_state = ai_state_to_avatar_state(&state.ai_state);
-    let av_art = render_ai(avatar_state, AvatarSize::Normal);
+    let av_art = avatar_manager.render(&state.ai_avatar, avatar_state, state.avatar_size);
 
     let mut lines: Vec<Spans> = Vec::new();
 
+    // AI avatar
     for line in av_art.lines() {
         lines.push(Spans::from(Span::styled(
             line.to_string(),
@@ -224,12 +230,15 @@ mod tests {
             raw_text: None,
         });
 
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
         let backend = TestBackend::new(72, 11);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
                 let area = frame.size();
-                draw_status_panel(frame, &state, area);
+                draw_status_panel(frame, &state, area, &avatar_manager);
             })
             .unwrap();
 
@@ -264,12 +273,15 @@ mod tests {
             true,
         );
 
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
         let backend = TestBackend::new(72, 11);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
                 let area = frame.size();
-                draw_status_panel(frame, &state, area);
+                draw_status_panel(frame, &state, area, &avatar_manager);
             })
             .unwrap();
 

@@ -169,7 +169,7 @@ impl<'a> Application<'a> {
         let mut renderer =
             if self._terminal_events.is_some() { Some(Renderer::new(out)?) } else { None };
         if let Some(renderer) = renderer.as_mut() {
-            renderer.render(&self.state, self.config)?;
+            renderer.render(&self.state, self.config, &self.avatar_manager)?;
         }
 
         self.start_network()?;
@@ -179,7 +179,7 @@ impl<'a> Application<'a> {
                 return Ok(());
             }
             if let Some(renderer) = renderer.as_mut() {
-                renderer.render(&self.state, self.config)?;
+                renderer.render(&self.state, self.config, &self.avatar_manager)?;
             }
         }
     }
@@ -924,6 +924,7 @@ impl<'a> Application<'a> {
             user_name: self.config.user_name.clone(),
             server_port,
             node_version: env!("CARGO_PKG_VERSION").into(),
+            avatar: self.state.user_avatar.clone(),
         };
         let mut encoder = Encoder::new();
         self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));

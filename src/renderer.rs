@@ -1,3 +1,4 @@
+use crate::avatar::loader::AvatarManager;
 use crate::config::Config;
 use crate::state::State;
 use crate::ui::{self};
@@ -23,9 +24,15 @@ impl<W: Write> Renderer<W> {
         Ok(Renderer { terminal: Terminal::new(CrosstermBackend::new(out))? })
     }
 
-    pub fn render(&mut self, state: &State, config: &Config) -> Result<()> {
-        self.terminal
-            .draw(|frame| ui::draw(frame, state, frame.size(), &config.theme, &config.language))?;
+    pub fn render(
+        &mut self,
+        state: &State,
+        config: &Config,
+        avatar_manager: &AvatarManager,
+    ) -> Result<()> {
+        self.terminal.draw(|frame| {
+            ui::draw(frame, state, frame.size(), &config.theme, &config.language, avatar_manager)
+        })?;
         Ok(())
     }
 }

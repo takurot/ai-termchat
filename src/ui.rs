@@ -7,15 +7,14 @@ pub mod status_panel;
 use resize::px::RGB;
 use resize::Pixel::RGB8;
 use resize::Type::Lanczos3;
-use tui::backend::CrosstermBackend;
+use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, Paragraph, Wrap};
 use tui::Frame;
 
-use std::io::Write;
-
+use crate::avatar::loader::AvatarManager;
 use crate::commands::CommandManager;
 use crate::config::{LanguageConfig, Theme};
 use crate::state::{MessageType, ProgressState, State, SystemMessageType, Window};
@@ -27,11 +26,12 @@ use crate::ui::status_panel::draw_status_panel;
 use crate::util::split_each;
 
 pub fn draw(
-    frame: &mut Frame<CrosstermBackend<impl Write>>,
+    frame: &mut Frame<impl Backend>,
     state: &State,
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
+    avatar_manager: &AvatarManager,
 ) {
     // Outer vertical split: [upper(min), input(6)]
     let v_chunks = Layout::default()
@@ -70,7 +70,7 @@ pub fn draw(
             .constraints(layout::right_column_constraints())
             .split(h_chunks[1]);
 
-        draw_peers_panel(frame, state, left_chunks[0]);
+        draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
         draw_room_list_panel(
             frame,
             state.rooms(),
@@ -90,7 +90,7 @@ pub fn draw(
             draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
 
-        draw_status_panel(frame, state, right_chunks[1]);
+        draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     } else {
         // ── Narrow layout: chat above, ops-ai below ─────────────────────────
         let right_chunks = Layout::default()
@@ -109,14 +109,14 @@ pub fn draw(
             draw_messages_panel(frame, state, right_chunks[0], theme, language);
         }
 
-        draw_status_panel(frame, state, right_chunks[1]);
+        draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     }
 
     draw_input_panel(frame, state, v_chunks[1], theme);
 }
 
 fn draw_messages_panel(
-    frame: &mut Frame<CrosstermBackend<impl Write>>,
+    frame: &mut Frame<impl Backend>,
     state: &State,
     chunk: Rect,
     theme: &Theme,
@@ -248,12 +248,7 @@ fn parse_content<'a>(content: &'a str, theme: &Theme) -> Vec<Span<'a>> {
     }
 }
 
-fn draw_input_panel(
-    frame: &mut Frame<CrosstermBackend<impl Write>>,
-    state: &State,
-    chunk: Rect,
-    theme: &Theme,
-) {
+fn draw_input_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect, theme: &Theme) {
     let inner_width = (chunk.width - 2) as usize;
     let input = state.input().iter().collect::<String>();
     let input = split_each(input, inner_width)
@@ -276,7 +271,7 @@ fn draw_input_panel(
     frame.set_cursor(chunk.x + 1 + input_cursor.0, chunk.y + 1 + input_cursor.1)
 }
 
-fn draw_video_panel(frame: &mut Frame<CrosstermBackend<impl Write>>, state: &State, chunk: Rect) {
+fn draw_video_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect) {
     let windows = state.windows.values().collect();
     let fb = FrameBuffer::new(windows).block(Block::default().borders(Borders::ALL));
     frame.render_widget(fb, chunk);
