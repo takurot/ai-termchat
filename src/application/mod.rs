@@ -123,6 +123,7 @@ impl<'a> Application<'a> {
         state.ui_language = config.language.ui.clone();
         state.user_avatar = config.user.avatar.clone();
         state.ai_avatar = config.user.ai_avatar.clone();
+        state.ai_provider = config.ai.provider.clone();
         state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
         state.set_transcript_base_dir(dirs_next::data_dir());
@@ -398,8 +399,20 @@ impl<'a> Application<'a> {
                 KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
                     self.state.scroll_room_list(ScrollMovement::Down);
                 }
-                KeyCode::Up => self.state.messages_scroll(ScrollMovement::Up),
-                KeyCode::Down => self.state.messages_scroll(ScrollMovement::Down),
+                KeyCode::Up => {
+                    if !self.state.input().is_empty() || self.state.in_history_mode() {
+                        self.state.input_history_prev();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Up);
+                    }
+                }
+                KeyCode::Down => {
+                    if self.state.in_history_mode() {
+                        self.state.input_history_next();
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::Down);
+                    }
+                }
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
                 _ => {}
             },
@@ -553,7 +566,9 @@ impl<'a> Application<'a> {
             }
             AppCommand::Skills => {
                 if self.state.skill_registry().skills().is_empty() {
-                    self.state.add_system_info_message("no skills found".into());
+                    self.state.add_system_info_message(
+                        "No skills found. Add skill scripts to .claude/skills/".into(),
+                    );
                 } else {
                     let mut skills = self
                         .state
@@ -561,13 +576,25 @@ impl<'a> Application<'a> {
                         .skills()
                         .iter()
                         .map(|skill| {
+                            let args = skill
+                                .args_hint
+                                .as_deref()
+                                .map(|hint| format!("  args: {hint}"))
+                                .unwrap_or_default();
                             format!(
-                                "{} | {:?} | {:?} | {}",
-                                skill.name, skill.risk, skill.invoke_mode, skill.description
+                                "{:<20} {:<8} {:<12} {}{}",
+                                skill.name, skill.risk, skill.invoke_mode, skill.description, args
                             )
                         })
                         .collect::<Vec<_>>();
-                    skills.insert(0, "name | risk | mode | description".into());
+                    skills.insert(
+                        0,
+                        format!("{:<20} {:<8} {:<12} {}", "name", "risk", "mode", "description"),
+                    );
+                    skills.insert(
+                        1,
+                        "------------------------------------------------------------".into(),
+                    );
                     self.state.add_system_info_message(skills.join("\n"));
                 }
             }
@@ -590,9 +617,7 @@ impl<'a> Application<'a> {
             AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
-                self.state.add_system_info_message(
-                    "/summary /todos /decisions /context /ai mode <clerk|listener|moderator|operator|companion> /ai quiet <on|off> /ai freq <low|normal|high> /room create @user [--ai <mode>] /room list /room switch <room_id> /peers /skills /skill <name> [args] /run <proposal_id> /cancel /avatar set <target> <preset> /avatar preview /avatar mode <compact|normal|expressive> /avatar list".into(),
-                );
+                self.state.add_system_info_message(help_text());
             }
         }
     }
@@ -918,7 +943,7 @@ impl<'a> Application<'a> {
         match meta.invoke_mode {
             InvokeMode::Suggest => {
                 self.state.add_system_info_message(format!(
-                    "skill '{}' is suggest-only and cannot be executed directly",
+                    "Skill '{}' is propose-only: the AI suggests it when relevant,\nbut it cannot be run manually with /skill. Wait for a proposal in the\nstatus panel and use /run <id> to accept.",
                     meta.name
                 ));
             }
@@ -1098,6 +1123,43 @@ fn ai_mode_label(mode: &AiMode) -> &'static str {
         AiMode::Operator => "operator",
         AiMode::Companion => "companion",
     }
+}
+
+fn help_text() -> String {
+    [
+        "AI",
+        "/ai mode <clerk|listener|moderator|operator|companion>  Change AI behaviour mode",
+        "/ai quiet <on|off>                                     Mute/unmute AI responses",
+        "/ai freq <low|normal|high>                             Adjust AI intervention frequency",
+        "",
+        "Summary",
+        "/summary   Summarise the conversation",
+        "/todos     List action items",
+        "/decisions List decisions made",
+        "/context   Summarise context",
+        "",
+        "Rooms",
+        "/room create @user [--ai <mode>]  Create a room with peers",
+        "/room list                        List all rooms",
+        "/room switch <room_id>            Switch active room",
+        "/peers                            List connected peers",
+        "",
+        "Skills",
+        "/skills               List available skills",
+        "/skill <name> [args]  Run a skill",
+        "/run <proposal_id>    Accept a skill proposal",
+        "/cancel               Cancel pending skill",
+        "",
+        "Avatar",
+        "/avatar set <target> <preset>             Set avatar preset",
+        "/avatar preview                           Preview your avatar",
+        "/avatar mode <compact|normal|expressive>  Set avatar size",
+        "/avatar list                              List available presets",
+        "",
+        "Files",
+        "/send <file>  Send a file to peers",
+    ]
+    .join("\n")
 }
 
 impl Drop for Application<'_> {
