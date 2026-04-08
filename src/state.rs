@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
 use crate::avatar::AvatarSize;
+use crate::config::AiProvider;
 use crate::message::{AiPayload, PeerInfo, StructuredOutput};
 use crate::room::transcript::{TranscriptEntry, TranscriptWriter};
 use crate::room::{Room, RoomEngine};
@@ -112,6 +113,9 @@ pub struct State {
     scroll_messages_view: usize,
     input: Vec<char>,
     input_cursor: usize,
+    input_history: Vec<String>,
+    history_cursor: Option<usize>,
+    history_draft: String,
     local_user_name: String,
     lan_users: HashMap<Endpoint, String>,
     peers: HashMap<Endpoint, PeerInfo>,
@@ -126,6 +130,7 @@ pub struct State {
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
+    pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
     pub ai_thinking: bool,
     pub abort_handle: Option<AbortHandle>,
@@ -150,6 +155,9 @@ impl Default for State {
             scroll_messages_view: 0,
             input: Vec::new(),
             input_cursor: 0,
+            input_history: Vec::new(),
+            history_cursor: None,
+            history_draft: String::new(),
             local_user_name: String::new(),
             lan_users: HashMap::new(),
             peers: HashMap::new(),
@@ -164,6 +172,7 @@ impl Default for State {
             stop_stream: false,
             windows: HashMap::new(),
             ai_state: AiState::Idle,
+            ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
             ai_thinking: false,
             abort_handle: None,
@@ -480,10 +489,65 @@ impl State {
 
     pub fn reset_input(&mut self) -> Option<String> {
         if !self.input.is_empty() {
+            self.history_cursor = None;
+            self.history_draft = String::new();
             self.input_cursor = 0;
-            return Some(self.input.drain(..).collect());
+            let text: String = self.input.drain(..).collect();
+            if !text.trim().is_empty() {
+                self.input_history.push(text.clone());
+            }
+            return Some(text);
         }
         None
+    }
+
+    pub fn in_history_mode(&self) -> bool {
+        self.history_cursor.is_some()
+    }
+
+    pub fn input_history_prev(&mut self) {
+        if self.input_history.is_empty() {
+            return;
+        }
+        match self.history_cursor {
+            None => {
+                self.history_draft = self.input.iter().collect();
+                let idx = self.input_history.len() - 1;
+                self.history_cursor = Some(idx);
+                self.load_history_entry(idx);
+            }
+            Some(0) => {}
+            Some(i) => {
+                let idx = i - 1;
+                self.history_cursor = Some(idx);
+                self.load_history_entry(idx);
+            }
+        }
+    }
+
+    pub fn input_history_next(&mut self) {
+        match self.history_cursor {
+            None => {}
+            Some(i) if i + 1 >= self.input_history.len() => {
+                self.history_cursor = None;
+                let draft: Vec<char> = self.history_draft.chars().collect();
+                let len = draft.len();
+                self.input = draft;
+                self.input_cursor = len;
+            }
+            Some(i) => {
+                let idx = i + 1;
+                self.history_cursor = Some(idx);
+                self.load_history_entry(idx);
+            }
+        }
+    }
+
+    fn load_history_entry(&mut self, idx: usize) {
+        let entry: Vec<char> = self.input_history[idx].chars().collect();
+        let len = entry.len();
+        self.input = entry;
+        self.input_cursor = len;
     }
 
     pub fn add_message(&mut self, message: ChatMessage) {
@@ -646,4 +710,182 @@ pub fn peer_fingerprint(peer: &PeerInfo) -> String {
     hasher.update(peer.user_name.as_bytes());
     hasher.update(peer.node_version.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state() -> State {
+        State::default()
+    }
+
+    fn type_text(state: &mut State, text: &str) {
+        for ch in text.chars() {
+            state.input_write(ch);
+        }
+    }
+
+    fn submit(state: &mut State) -> Option<String> {
+        state.reset_input()
+    }
+
+    // --- reset_input pushes to history ---
+
+    #[test]
+    fn reset_input_pushes_non_empty_input_to_history() {
+        let mut s = make_state();
+        type_text(&mut s, "hello");
+        submit(&mut s);
+        assert_eq!(s.input_history, vec!["hello"]);
+    }
+
+    #[test]
+    fn reset_input_does_not_push_empty_input() {
+        let mut s = make_state();
+        submit(&mut s);
+        assert!(s.input_history.is_empty());
+    }
+
+    #[test]
+    fn reset_input_does_not_push_whitespace_only_input() {
+        let mut s = make_state();
+        type_text(&mut s, "   ");
+        submit(&mut s);
+        assert!(s.input_history.is_empty());
+    }
+
+    #[test]
+    fn reset_input_resets_history_cursor() {
+        let mut s = make_state();
+        type_text(&mut s, "first");
+        submit(&mut s);
+        // navigate into history
+        s.input_history_prev();
+        assert!(s.in_history_mode());
+        // submit resets mode
+        type_text(&mut s, "second");
+        submit(&mut s);
+        assert!(!s.in_history_mode());
+    }
+
+    // --- input_history_prev ---
+
+    #[test]
+    fn history_prev_does_nothing_when_history_is_empty() {
+        let mut s = make_state();
+        s.input_history_prev();
+        assert!(!s.in_history_mode());
+        assert!(s.input.is_empty());
+    }
+
+    #[test]
+    fn history_prev_loads_most_recent_entry() {
+        let mut s = make_state();
+        type_text(&mut s, "hello");
+        submit(&mut s);
+
+        s.input_history_prev();
+
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "hello");
+        assert!(s.in_history_mode());
+    }
+
+    #[test]
+    fn history_prev_saves_draft_before_entering_history() {
+        let mut s = make_state();
+        type_text(&mut s, "submitted");
+        submit(&mut s);
+
+        type_text(&mut s, "draft");
+        s.input_history_prev();
+
+        assert_eq!(s.history_draft, "draft");
+    }
+
+    #[test]
+    fn history_prev_navigates_to_older_entries() {
+        let mut s = make_state();
+        type_text(&mut s, "first");
+        submit(&mut s);
+        type_text(&mut s, "second");
+        submit(&mut s);
+
+        s.input_history_prev(); // → "second"
+        s.input_history_prev(); // → "first"
+
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "first");
+    }
+
+    #[test]
+    fn history_prev_stops_at_oldest_entry() {
+        let mut s = make_state();
+        type_text(&mut s, "only");
+        submit(&mut s);
+
+        s.input_history_prev();
+        s.input_history_prev(); // should not go beyond
+        s.input_history_prev();
+
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "only");
+    }
+
+    // --- input_history_next ---
+
+    #[test]
+    fn history_next_does_nothing_when_not_in_history_mode() {
+        let mut s = make_state();
+        type_text(&mut s, "live");
+        s.input_history_next();
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "live");
+        assert!(!s.in_history_mode());
+    }
+
+    #[test]
+    fn history_next_restores_draft_at_end_of_history() {
+        let mut s = make_state();
+        type_text(&mut s, "submitted");
+        submit(&mut s);
+
+        type_text(&mut s, "my draft");
+        s.input_history_prev(); // enter history
+        s.input_history_next(); // back to live
+
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "my draft");
+        assert!(!s.in_history_mode());
+    }
+
+    #[test]
+    fn history_next_moves_forward_through_entries() {
+        let mut s = make_state();
+        type_text(&mut s, "first");
+        submit(&mut s);
+        type_text(&mut s, "second");
+        submit(&mut s);
+
+        s.input_history_prev(); // → "second"
+        s.input_history_prev(); // → "first"
+        s.input_history_next(); // → "second"
+
+        let current: String = s.input.iter().collect();
+        assert_eq!(current, "second");
+    }
+
+    // --- cursor position ---
+
+    #[test]
+    fn history_loads_entry_with_cursor_at_end() {
+        let mut s = make_state();
+        type_text(&mut s, "hello");
+        submit(&mut s);
+
+        s.input_history_prev();
+
+        assert_eq!(s.input_cursor, 5);
+    }
 }
