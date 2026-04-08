@@ -536,7 +536,9 @@ impl<'a> Application<'a> {
             }
             AppCommand::Skills => {
                 if self.state.skill_registry().skills().is_empty() {
-                    self.state.add_system_info_message("no skills found".into());
+                    self.state.add_system_info_message(
+                        "No skills found. Add skill scripts to .claude/skills/".into(),
+                    );
                 } else {
                     let mut skills = self
                         .state
@@ -544,13 +546,25 @@ impl<'a> Application<'a> {
                         .skills()
                         .iter()
                         .map(|skill| {
+                            let args = skill
+                                .args_hint
+                                .as_deref()
+                                .map(|hint| format!("  args: {hint}"))
+                                .unwrap_or_default();
                             format!(
-                                "{} | {:?} | {:?} | {}",
-                                skill.name, skill.risk, skill.invoke_mode, skill.description
+                                "{:<20} {:<8} {:<12} {}{}",
+                                skill.name, skill.risk, skill.invoke_mode, skill.description, args
                             )
                         })
                         .collect::<Vec<_>>();
-                    skills.insert(0, "name | risk | mode | description".into());
+                    skills.insert(
+                        0,
+                        format!("{:<20} {:<8} {:<12} {}", "name", "risk", "mode", "description"),
+                    );
+                    skills.insert(
+                        1,
+                        "------------------------------------------------------------".into(),
+                    );
                     self.state.add_system_info_message(skills.join("\n"));
                 }
             }
@@ -901,7 +915,7 @@ impl<'a> Application<'a> {
         match meta.invoke_mode {
             InvokeMode::Suggest => {
                 self.state.add_system_info_message(format!(
-                    "skill '{}' is suggest-only and cannot be executed directly",
+                    "Skill '{}' is propose-only: the AI suggests it when relevant,\nbut it cannot be run manually with /skill. Wait for a proposal in the\nstatus panel and use /run <id> to accept.",
                     meta.name
                 ));
             }

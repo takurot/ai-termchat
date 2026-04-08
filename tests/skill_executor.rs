@@ -38,6 +38,24 @@ description: 認証ロジックをレビューする
     dir
 }
 
+fn create_suggest_skill_workspace() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    let skills_dir = dir.path().join(".claude/skills/summarise");
+    fs::create_dir_all(&skills_dir).unwrap();
+    fs::write(
+        skills_dir.join("SKILL.md"),
+        r#"---
+name: summarise
+invoke: suggest
+risk: low
+description: Summarise text
+---
+"#,
+    )
+    .unwrap();
+    dir
+}
+
 #[test]
 fn skill_command_requires_confirmation_then_posts_result() {
     let workspace = create_skill_workspace();
@@ -127,4 +145,25 @@ fn run_uses_pending_skill_proposals_from_ai_response() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(rendered.contains("proposal executed"));
+}
+
+#[test]
+fn suggest_only_skill_explains_how_to_run_it() {
+    let workspace = create_suggest_skill_workspace();
+    let mut config = Config::default();
+    config.ai.command = Some("true".into());
+    let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
+
+    app.handle_input_line_for_test("/skill summarise").unwrap();
+
+    let rendered = app
+        .state()
+        .messages()
+        .iter()
+        .map(|message| message.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("Skill 'summarise' is propose-only"));
+    assert!(rendered.contains("/run <id>"));
 }
