@@ -137,3 +137,40 @@ fn room_and_peer_commands_show_richer_metadata() {
     assert!(rendered.contains("Switched to room-1 [takuro, tanaka]"), "{rendered}");
     assert!(rendered.contains("AI: clerk"), "{rendered}");
 }
+
+#[test]
+fn room_switch_rejects_zero_index() {
+    let discovery_port = 40000 + (rand::random::<u16>() % 1000);
+    let takuro_config = test_config("takuro", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port);
+    let mut takuro = Application::new_for_test(&takuro_config).unwrap();
+    let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
+
+    takuro.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    tanaka.start_network_for_test().unwrap();
+    takuro.announce_presence_for_test().unwrap();
+    tanaka.announce_presence_for_test().unwrap();
+
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    });
+
+    takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
+
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+        left.state().rooms().len() == 1
+            && right.state().rooms().len() == 1
+            && left.state().active_room_id() == right.state().active_room_id()
+    });
+
+    let active_room =
+        takuro.state().active_room_id().expect("active room should exist").to_string();
+    takuro.handle_input_line_for_test("/room switch 0").unwrap();
+
+    let rendered =
+        takuro.state().messages().last().expect("switch error should be rendered").rendered_text();
+
+    assert_eq!(rendered, "unknown room id: 0");
+    assert_eq!(takuro.state().active_room_id(), Some(active_room.as_str()));
+}

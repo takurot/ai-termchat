@@ -168,6 +168,40 @@ fn help_command_groups_commands_with_descriptions() {
 }
 
 #[test]
+fn ai_commands_report_human_readable_feedback() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/ai mode moderator").unwrap();
+    app.handle_input_line_for_test("/ai freq low").unwrap();
+
+    let rendered = app
+        .state()
+        .messages()
+        .iter()
+        .map(|message| message.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("AI mode set to moderator"));
+    assert!(rendered.contains("AI frequency set to low"));
+}
+
+#[test]
+fn unknown_command_points_users_to_help() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/does-not-exist").unwrap();
+
+    let rendered = app.state().messages().last().expect("unknown command message").rendered_text();
+
+    assert_eq!(rendered, "Unknown command '/does-not-exist'. Type /help for available commands.");
+}
+
+#[test]
 fn room_create_unknown_peer_points_to_peers_command() {
     let mut config = Config::default();
     config.ai.enabled = false;
