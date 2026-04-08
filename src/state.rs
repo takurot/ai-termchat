@@ -378,6 +378,7 @@ impl State {
         let mut peers = self
             .peers
             .values()
+            .filter(|peer| peer.user_name != self.local_user_name)
             .map(|peer| (peer.user_name.clone(), peer.avatar.clone()))
             .collect::<Vec<_>>();
         peers.sort_by(|a, b| a.0.cmp(&b.0));
