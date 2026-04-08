@@ -116,19 +116,14 @@ impl Default for UserConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AiProvider {
+    #[default]
     Claude,
     Codex,
     Gemini,
     Custom,
-}
-
-impl Default for AiProvider {
-    fn default() -> Self {
-        Self::Claude
-    }
 }
 
 impl AiProvider {
