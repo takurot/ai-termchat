@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::encoder::{self, Encoder};
 use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
 use crate::room::transcript::TranscriptEntry;
+use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::state::{
     AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State, Window,
@@ -505,7 +506,10 @@ impl<'a> Application<'a> {
                     .iter()
                     .find(|peer| !self.state.peer_names().iter().any(|known| known == *peer))
                 {
-                    self.state.add_system_error_message(format!("unknown peer: {}", missing_peer));
+                    self.state.add_system_error_message(format!(
+                        "unknown peer '{}'. Use /peers to see connected peers.",
+                        missing_peer
+                    ));
                     return;
                 }
 
@@ -528,23 +532,36 @@ impl<'a> Application<'a> {
                 self.state.add_system_info_message(format!("created room {}", room.id));
             }
             AppCommand::RoomList => {
-                let room_ids = self.state.room_ids();
-                if room_ids.is_empty() {
+                if self.state.rooms().is_empty() {
                     self.state.add_system_info_message("no rooms".into());
                 } else {
-                    self.state.add_system_info_message(room_ids.join(", "));
+                    self.state.add_system_info_message(self.room_list_text());
                 }
             }
-            AppCommand::RoomSwitch(room_id) => match self.state.switch_room(&room_id) {
-                Ok(()) => self.state.add_system_info_message(format!("switched to {}", room_id)),
-                Err(error) => self.state.add_system_error_message(error.to_string()),
-            },
+            AppCommand::RoomSwitch(target) => {
+                let room_id = self.resolve_room_switch_target(&target).unwrap_or(target);
+                match self.state.switch_room(&room_id) {
+                    Ok(()) => {
+                        if let Some(room) =
+                            self.state.rooms().iter().find(|room| room.id == room_id).cloned()
+                        {
+                            self.state.add_system_info_message(format!(
+                                "Switched to {}",
+                                describe_room(&room)
+                            ));
+                        } else {
+                            self.state.add_system_info_message(format!("Switched to {}", room_id));
+                        }
+                    }
+                    Err(error) => self.state.add_system_error_message(error.to_string()),
+                }
+            }
             AppCommand::Peers => {
                 let peers = self.state.peer_names();
                 if peers.is_empty() {
                     self.state.add_system_info_message("no peers discovered".into());
                 } else {
-                    self.state.add_system_info_message(peers.join(", "));
+                    self.state.add_system_info_message(self.peers_text());
                 }
             }
             AppCommand::Skills => {
@@ -1026,6 +1043,85 @@ impl<'a> Application<'a> {
         if let Ok(serialized) = toml::to_string(&stored) {
             let _ = std::fs::write(path, serialized);
         }
+    }
+
+    fn room_list_text(&self) -> String {
+        let mut lines = vec![format!("Rooms ({}):", self.state.rooms().len())];
+        for (index, room) in self.state.rooms().iter().enumerate() {
+            let active = self.state.active_room_id() == Some(room.id.as_str());
+            let active_marker = if active { "*" } else { " " };
+            let active_suffix = if active { "  ← active" } else { "" };
+            lines.push(format!(
+                "  {index_num} {active_marker} {room}{active_suffix}",
+                index_num = index + 1,
+                room = describe_room_list_entry(room),
+            ));
+        }
+        lines.join("\n")
+    }
+
+    fn peers_text(&self) -> String {
+        let active_members = self
+            .state
+            .rooms()
+            .iter()
+            .find(|room| self.state.active_room_id() == Some(room.id.as_str()))
+            .map(human_member_names)
+            .unwrap_or_default();
+
+        let mut lines = vec![format!("Connected peers ({}):", self.state.peer_names().len())];
+        for peer in self.state.peer_names() {
+            let status = if active_members.iter().any(|member| member == &peer) {
+                "in room"
+            } else {
+                "available"
+            };
+            lines.push(format!("  {peer}  [{status}]"));
+        }
+        lines.join("\n")
+    }
+
+    fn resolve_room_switch_target(&self, target: &str) -> Option<String> {
+        if let Ok(index) = target.parse::<usize>() {
+            return self.state.rooms().get(index.saturating_sub(1)).map(|room| room.id.clone());
+        }
+        self.state.rooms().iter().find(|room| room.id == target).map(|room| room.id.clone())
+    }
+}
+
+fn describe_room(room: &Room) -> String {
+    format!(
+        "{} [{}] — AI: {}",
+        room.id,
+        human_member_names(room).join(", "),
+        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+    )
+}
+
+fn describe_room_list_entry(room: &Room) -> String {
+    format!(
+        "{} [{}] mode: {}",
+        room.id,
+        human_member_names(room).join(", "),
+        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+    )
+}
+
+fn human_member_names(room: &Room) -> Vec<String> {
+    room.members
+        .iter()
+        .filter(|member| member.kind == MemberKind::Human)
+        .map(|member| member.id.clone())
+        .collect()
+}
+
+fn ai_mode_label(mode: &AiMode) -> &'static str {
+    match mode {
+        AiMode::Clerk => "clerk",
+        AiMode::Listener => "listener",
+        AiMode::Moderator => "moderator",
+        AiMode::Operator => "operator",
+        AiMode::Companion => "companion",
     }
 }
 
