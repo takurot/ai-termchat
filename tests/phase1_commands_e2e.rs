@@ -28,6 +28,7 @@ invoke: confirm
 risk: medium
 allowed-tools: [Read, Grep]
 description: 認証ロジックをレビューする
+args_hint: <ticket-id>
 ---
 "#,
     )
@@ -73,7 +74,14 @@ fn phase1_skill_commands_execute_without_polluting_transcript() {
         .map(|message| message.rendered_text())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(rendered.contains("name | risk | mode | description"));
+    assert!(rendered.contains("name"));
+    assert!(rendered.contains("risk"));
+    assert!(rendered.contains("mode"));
+    assert!(rendered.contains("description"));
+    assert!(rendered.contains("review-auth"));
+    assert!(rendered.contains("medium"));
+    assert!(rendered.contains("confirm"));
+    assert!(rendered.contains("args: <ticket-id>"));
     assert!(rendered.contains("review-auth finished successfully"));
 
     let transcript = app.state().transcript(20);
