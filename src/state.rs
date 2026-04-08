@@ -481,7 +481,9 @@ impl State {
             self.history_draft = String::new();
             self.input_cursor = 0;
             let text: String = self.input.drain(..).collect();
-            self.input_history.push(text.clone());
+            if !text.trim().is_empty() {
+                self.input_history.push(text.clone());
+            }
             return Some(text);
         }
         None
@@ -729,6 +731,14 @@ mod tests {
     #[test]
     fn reset_input_does_not_push_empty_input() {
         let mut s = make_state();
+        submit(&mut s);
+        assert!(s.input_history.is_empty());
+    }
+
+    #[test]
+    fn reset_input_does_not_push_whitespace_only_input() {
+        let mut s = make_state();
+        type_text(&mut s, "   ");
         submit(&mut s);
         assert!(s.input_history.is_empty());
     }
