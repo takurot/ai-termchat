@@ -1,6 +1,8 @@
 use rgb::RGB8;
 use serde::{Deserialize, Serialize};
 
+use crate::state::AiMode;
+
 pub type RoomId = String;
 pub type MemberId = String;
 
@@ -90,7 +92,7 @@ pub enum NetMessage {
     Stream(Option<(Vec<RGB8>, usize, usize)>),
     AiMessage(AiPayload),
     PeerInfo(PeerInfo),
-    RoomCreate(RoomId, Vec<MemberId>),
+    RoomCreate(RoomId, Vec<MemberId>, Option<AiMode>),
     RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
 }
