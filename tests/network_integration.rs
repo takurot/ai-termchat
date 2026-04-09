@@ -97,7 +97,14 @@ fn room_and_peer_commands_show_richer_metadata() {
 
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if takuro.state().peers().len() == 2 && tanaka.state().peers().len() == 1 {
+        if takuro.state().peers().len() == 2
+            && tanaka.state().peers().len() == 1
+            && sato.state().peers().len() == 1
+            && takuro.state().peer_is_ready("tanaka")
+            && takuro.state().peer_is_ready("sato")
+            && tanaka.state().peer_is_ready("takuro")
+            && sato.state().peer_is_ready("takuro")
+        {
             break;
         }
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
@@ -200,7 +207,10 @@ fn peer_connect_command_bootstraps_room_creation_without_multicast() {
         .unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
-        left.state().peers().len() == 1 && right.state().peers().len() == 1
+        left.state().peers().len() == 1
+            && right.state().peers().len() == 1
+            && left.state().peer_is_ready("tanaka")
+            && right.state().peer_is_ready("takuro")
     });
 
     takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
@@ -257,7 +267,10 @@ description: Review auth
     takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
-        left.state().peers().len() == 1 && right.state().peers().len() == 1
+        left.state().peers().len() == 1
+            && right.state().peers().len() == 1
+            && left.state().peer_is_ready("tanaka")
+            && right.state().peer_is_ready("takuro")
     });
 
     let endpoint = tanaka.state().all_user_endpoints()[0];
@@ -339,7 +352,10 @@ description: Review auth
     takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
-        left.state().peers().len() == 1 && right.state().peers().len() == 1
+        left.state().peers().len() == 1
+            && right.state().peers().len() == 1
+            && left.state().peer_is_ready("tanaka")
+            && right.state().peer_is_ready("takuro")
     });
 
     let fingerprint = takuro.state().peer_fingerprint_by_name("tanaka").unwrap();
