@@ -7,7 +7,7 @@ use tui::style::Color;
 
 use crate::util::Result;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub discovery_addr: SocketAddrV4,
     pub tcp_server_port: u16,
@@ -179,6 +179,23 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefaultPermission {
+    ConfirmRequired,
+    TrustedAutoSafe,
+    DenyRemoteExec,
+}
+
+impl DefaultPermission {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ConfirmRequired => "confirm-required",
+            Self::TrustedAutoSafe => "trusted-auto-safe",
+            Self::DenyRemoteExec => "deny-remote-exec",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SecurityConfig {
     pub default_permission: String,
@@ -187,7 +204,20 @@ pub struct SecurityConfig {
 
 impl Default for SecurityConfig {
     fn default() -> Self {
-        Self { default_permission: "confirm-required".into(), trusted_peers: Vec::new() }
+        Self {
+            default_permission: DefaultPermission::ConfirmRequired.as_str().into(),
+            trusted_peers: Vec::new(),
+        }
+    }
+}
+
+impl SecurityConfig {
+    pub fn default_permission_policy(&self) -> DefaultPermission {
+        match self.default_permission.as_str() {
+            "trusted-auto-safe" => DefaultPermission::TrustedAutoSafe,
+            "deny-remote-exec" => DefaultPermission::DenyRemoteExec,
+            _ => DefaultPermission::ConfirmRequired,
+        }
     }
 }
 
@@ -228,7 +258,7 @@ impl Default for LanguageConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Theme {
     pub message_colors: Vec<Color>,
     pub my_user_color: Color,
