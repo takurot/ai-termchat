@@ -1,4 +1,5 @@
 use triadchat::message::{NetMessage, PeerInfo, SkillResultPayload};
+use triadchat::state::AiMode;
 
 #[test]
 fn peer_info_round_trips_through_bincode() {
@@ -25,8 +26,11 @@ fn peer_info_round_trips_through_bincode() {
 
 #[test]
 fn room_and_skill_variants_round_trip_through_bincode() {
-    let room_create =
-        NetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
+    let room_create = NetMessage::RoomCreate(
+        "room-1".into(),
+        vec!["takuro".into(), "tanaka".into()],
+        Some(AiMode::Clerk),
+    );
     let room_join = NetMessage::RoomJoin("room-1".into());
     let skill_done = NetMessage::SkillResult(SkillResultPayload {
         skill_name: "review-auth".into(),
@@ -41,11 +45,12 @@ fn room_and_skill_variants_round_trip_through_bincode() {
 
         match (message, decoded) {
             (
-                NetMessage::RoomCreate(expected_id, expected_members),
-                NetMessage::RoomCreate(id, members),
+                NetMessage::RoomCreate(expected_id, expected_members, expected_mode),
+                NetMessage::RoomCreate(id, members, mode),
             ) => {
                 assert_eq!(id, expected_id);
                 assert_eq!(members, expected_members);
+                assert_eq!(mode, expected_mode);
             }
             (NetMessage::RoomJoin(expected_id), NetMessage::RoomJoin(id)) => {
                 assert_eq!(id, expected_id);
