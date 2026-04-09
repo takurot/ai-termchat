@@ -92,7 +92,8 @@ pub enum NetMessage {
     Stream(Option<(Vec<RGB8>, usize, usize)>),
     AiMessage(AiPayload),
     PeerInfo(PeerInfo),
-    RoomCreate(RoomId, Vec<MemberId>, Option<AiMode>),
+    RoomCreate(RoomId, Vec<MemberId>),
+    RoomCreateV2 { room_id: RoomId, members: Vec<MemberId>, ai_mode: Option<AiMode> },
     RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
 }

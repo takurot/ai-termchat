@@ -1,6 +1,6 @@
 [package]
 name = "triadchat"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["lemunozm <lemunozm@gmail.com>"]
 description = "Terminal chat with a built-in AI clerk"
 edition = "2021"

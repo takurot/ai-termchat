@@ -248,7 +248,10 @@ impl<'a> Application<'a> {
                 NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
                 NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
                     Some(net_message) => self.process_network_message(endpoint, net_message),
-                    None => return Err(anyhow::anyhow!("unknown message received")),
+                    None => self.state.add_system_warn_message(format!(
+                        "ignored incompatible message from {}",
+                        endpoint.addr()
+                    )),
                 },
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
@@ -379,9 +382,18 @@ impl<'a> Application<'a> {
                     ));
                 }
             }
-            NetMessage::RoomCreate(room_id, member_ids, ai_mode) => {
+            NetMessage::RoomCreate(room_id, member_ids) => {
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
-                    let room = self.state.accept_room(&room_id, &member_ids, ai_mode);
+                    let room = self.state.accept_room(&room_id, &member_ids, None);
+                    self.state.add_system_info_message(format!("joined room {}", room.id));
+                    self.node
+                        .network()
+                        .send(endpoint, self.encoder.encode(NetMessage::RoomJoin(room.id.clone())));
+                }
+            }
+            NetMessage::RoomCreateV2 { room_id, members, ai_mode } => {
+                if members.iter().any(|member_id| member_id == &self.config.user_name) {
+                    let room = self.state.accept_room(&room_id, &members, ai_mode);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
                     self.node
                         .network()
@@ -563,14 +575,16 @@ impl<'a> Application<'a> {
                 for endpoint in self.state.all_user_endpoints() {
                     if let Some(user_name) = self.state.user_name(endpoint) {
                         if peers.iter().any(|peer| peer == user_name) {
-                            self.node.network().send(
-                                endpoint,
-                                self.encoder.encode(NetMessage::RoomCreate(
-                                    room.id.clone(),
-                                    member_ids.clone(),
-                                    ai_mode.clone(),
-                                )),
-                            );
+                            let message = if self.peer_supports_room_create_v2(endpoint) {
+                                NetMessage::RoomCreateV2 {
+                                    room_id: room.id.clone(),
+                                    members: member_ids.clone(),
+                                    ai_mode: ai_mode.clone(),
+                                }
+                            } else {
+                                NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
+                            };
+                            self.node.network().send(endpoint, self.encoder.encode(message));
                         }
                     }
                 }
@@ -663,11 +677,15 @@ impl<'a> Application<'a> {
                 let source = proposal.source_peer.clone();
                 let is_remote = source.is_some();
                 let permission = self.config.security.default_permission_policy();
-                let currently_trusted = source
-                    .as_deref()
-                    .and_then(|peer| self.state.peer_fingerprint_by_name(peer))
-                    .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
-                    .unwrap_or(proposal.trusted);
+                let currently_trusted = if is_remote {
+                    proposal
+                        .source_fingerprint
+                        .as_deref()
+                        .map(|fingerprint| self.state.is_trusted_peer(fingerprint))
+                        .unwrap_or(false)
+                } else {
+                    proposal.trusted
+                };
                 if is_remote && matches!(permission, DefaultPermission::DenyRemoteExec) {
                     self.state.add_system_error_message(
                         "remote proposals are disabled by security.default_permission".into(),
@@ -790,7 +808,7 @@ impl<'a> Application<'a> {
 
         if self.test_mode {
             match self.runtime.block_on(ai_mediator.request(task, &transcript, &last_messages)) {
-                Ok(payload) => self.record_ai_response(payload, true, None, true),
+                Ok(payload) => self.record_ai_response(payload, true, None, None, true),
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -829,7 +847,7 @@ impl<'a> Application<'a> {
                 &transcript,
                 &last_messages,
             )) {
-                Ok(payload) => self.record_ai_response(payload, true, None, true),
+                Ok(payload) => self.record_ai_response(payload, true, None, None, true),
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -846,17 +864,17 @@ impl<'a> Application<'a> {
     }
 
     fn process_ai_response(&mut self, payload: AiPayload) {
-        self.record_ai_response(payload, true, None, true);
+        self.record_ai_response(payload, true, None, None, true);
     }
 
     fn process_remote_ai_response(&mut self, endpoint: Endpoint, payload: AiPayload) {
         let source_peer = self.state.user_name(endpoint).cloned();
-        let trusted = self
-            .state
-            .peer_fingerprint(endpoint)
-            .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
+        let source_fingerprint = self.state.peer_fingerprint(endpoint);
+        let trusted = source_fingerprint
+            .as_deref()
+            .map(|fingerprint| self.state.is_trusted_peer(fingerprint))
             .unwrap_or(false);
-        self.record_ai_response(payload, false, source_peer, trusted);
+        self.record_ai_response(payload, false, source_peer, source_fingerprint, trusted);
     }
 
     fn record_ai_response(
@@ -864,6 +882,7 @@ impl<'a> Application<'a> {
         payload: AiPayload,
         broadcast: bool,
         source_peer: Option<String>,
+        source_fingerprint: Option<String>,
         trusted: bool,
     ) {
         self.state.ai_state = AiState::Idle;
@@ -873,7 +892,12 @@ impl<'a> Application<'a> {
         self.state.abort_handle = None;
         self.state.last_structured_output = payload.structured.clone();
         if let Some(structured) = payload.structured.as_ref() {
-            self.state.set_skill_proposals(&structured.skill_suggestions, source_peer, trusted);
+            self.state.set_skill_proposals_with_fingerprint(
+                &structured.skill_suggestions,
+                source_peer,
+                source_fingerprint,
+                trusted,
+            );
         } else {
             self.state.clear_skill_proposals();
         }
@@ -1006,6 +1030,14 @@ impl<'a> Application<'a> {
         };
         let mut encoder = Encoder::new();
         self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
+    }
+
+    fn peer_supports_room_create_v2(&self, endpoint: Endpoint) -> bool {
+        self.state
+            .peers()
+            .get(&endpoint)
+            .map(|peer| version_supports_room_create_v2(&peer.node_version))
+            .unwrap_or(false)
     }
 
     fn announce_presence(&mut self) -> Result<()> {
@@ -1205,6 +1237,7 @@ impl<'a> Application<'a> {
         };
         self.state.trust_peer_fingerprint(fingerprint.clone());
         self.state.set_skill_proposal_trust(&label, true);
+        self.state.set_skill_proposal_trust_by_fingerprint(&fingerprint, true);
         self.persist_trusted_peer_fingerprint(&fingerprint);
         self.state.add_system_info_message(format!(
             "trusted peer {} ({})",
@@ -1223,6 +1256,7 @@ impl<'a> Application<'a> {
         };
         self.state.untrust_peer_fingerprint(&fingerprint);
         self.state.set_skill_proposal_trust(&label, false);
+        self.state.set_skill_proposal_trust_by_fingerprint(&fingerprint, false);
         self.remove_trusted_peer_fingerprint(&fingerprint);
         self.state.add_system_info_message(format!(
             "removed trust for {} ({})",
@@ -1404,6 +1438,21 @@ fn ai_frequency_label(frequency: &AiFrequency) -> &'static str {
 
 fn short_fingerprint(fingerprint: &str) -> &str {
     fingerprint.get(..12).unwrap_or(fingerprint)
+}
+
+fn version_supports_room_create_v2(version: &str) -> bool {
+    parse_semver_tuple(version).map(|parsed| parsed >= (0, 1, 1)).unwrap_or(false)
+}
+
+fn parse_semver_tuple(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
 }
 
 fn render_ai_payload(payload: &AiPayload) -> String {

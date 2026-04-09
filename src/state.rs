@@ -69,6 +69,7 @@ pub struct SkillProposal {
     pub id: usize,
     pub skill_name: String,
     pub source_peer: Option<String>,
+    pub source_fingerprint: Option<String>,
     pub trusted: bool,
 }
 
@@ -319,6 +320,16 @@ impl State {
         source_peer: Option<String>,
         trusted: bool,
     ) {
+        self.set_skill_proposals_with_fingerprint(skill_names, source_peer, None, trusted);
+    }
+
+    pub fn set_skill_proposals_with_fingerprint(
+        &mut self,
+        skill_names: &[String],
+        source_peer: Option<String>,
+        source_fingerprint: Option<String>,
+        trusted: bool,
+    ) {
         self.pending_skill_proposals = skill_names
             .iter()
             .enumerate()
@@ -326,6 +337,7 @@ impl State {
                 id: index + 1,
                 skill_name: skill_name.clone(),
                 source_peer: source_peer.clone(),
+                source_fingerprint: source_fingerprint.clone(),
                 trusted,
             })
             .collect();
@@ -334,6 +346,14 @@ impl State {
     pub fn set_skill_proposal_trust(&mut self, source_peer: &str, trusted: bool) {
         for proposal in &mut self.pending_skill_proposals {
             if proposal.source_peer.as_deref() == Some(source_peer) {
+                proposal.trusted = trusted;
+            }
+        }
+    }
+
+    pub fn set_skill_proposal_trust_by_fingerprint(&mut self, fingerprint: &str, trusted: bool) {
+        for proposal in &mut self.pending_skill_proposals {
+            if proposal.source_fingerprint.as_deref() == Some(fingerprint) {
                 proposal.trusted = trusted;
             }
         }
@@ -375,15 +395,11 @@ impl State {
         if self.lan_users.get(&endpoint).is_some_and(|known| known == user) {
             return;
         }
-        if self
-            .peers
-            .iter()
-            .any(|(known_endpoint, peer)| {
-                *known_endpoint != endpoint
-                    && peer.user_name == user
-                    && peer_readiness(peer) == PeerReadiness::Ready
-            })
-        {
+        if self.peers.iter().any(|(known_endpoint, peer)| {
+            *known_endpoint != endpoint
+                && peer.user_name == user
+                && peer_readiness(peer) == PeerReadiness::Ready
+        }) {
             return;
         }
         self.remove_duplicate_peer_entries(endpoint, user);

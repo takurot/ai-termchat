@@ -50,10 +50,8 @@ fn peer_handshake_and_room_create_propagates() {
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
     takuro.start_network_for_test().unwrap();
-    std::thread::sleep(Duration::from_millis(100));
     tanaka.start_network_for_test().unwrap();
-    takuro.announce_presence_for_test().unwrap();
-    tanaka.announce_presence_for_test().unwrap();
+    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
         left.state().peers().len() == 1
@@ -154,10 +152,8 @@ fn room_switch_rejects_zero_index() {
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
     takuro.start_network_for_test().unwrap();
-    std::thread::sleep(Duration::from_millis(100));
     tanaka.start_network_for_test().unwrap();
-    takuro.announce_presence_for_test().unwrap();
-    tanaka.announce_presence_for_test().unwrap();
+    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
 
     pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
         left.state().peers().len() == 1
@@ -298,4 +294,92 @@ description: Review auth
         .collect::<Vec<_>>()
         .join("\n");
     assert!(transcript.contains("review-auth executed"));
+}
+
+#[test]
+fn trust_remove_by_fingerprint_blocks_disconnected_peer_proposals() {
+    let workspace = tempfile::TempDir::new().unwrap();
+    let skills_dir = workspace.path().join(".claude/skills/review-auth");
+    std::fs::create_dir_all(&skills_dir).unwrap();
+    std::fs::write(
+        skills_dir.join("SKILL.md"),
+        r#"---
+name: review-auth
+invoke: auto_safe
+risk: low
+description: Review auth
+---
+"#,
+    )
+    .unwrap();
+
+    let script_path = workspace.path().join("mock-claude.sh");
+    std::fs::write(&script_path, "#!/bin/sh\nprintf 'review-auth executed'\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).unwrap();
+    }
+
+    let discovery_port = 43000 + (rand::random::<u16>() % 1000);
+    let mut takuro_config = test_config("takuro", discovery_port);
+    takuro_config.ai.command = Some(script_path.display().to_string());
+    takuro_config.security.default_permission = "confirm-required".into();
+    let mut tanaka_config = test_config("tanaka", discovery_port);
+    tanaka_config.ai.command = Some(script_path.display().to_string());
+    let mut takuro =
+        Application::new_for_test_in_workspace(&takuro_config, workspace.path()).unwrap();
+    let mut tanaka =
+        Application::new_for_test_in_workspace(&tanaka_config, workspace.path()).unwrap();
+
+    takuro.start_network_for_test().unwrap();
+    tanaka.start_network_for_test().unwrap();
+    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    });
+
+    let fingerprint = takuro.state().peer_fingerprint_by_name("tanaka").unwrap();
+    let endpoint = tanaka.state().all_user_endpoints()[0];
+    let payload = AiPayload {
+        text: "review-auth suggested".into(),
+        intent: AiIntent::SkillSuggest,
+        structured: Some(StructuredOutput {
+            todos: Vec::new(),
+            decisions: Vec::new(),
+            skill_suggestions: vec!["review-auth".into()],
+            raw_text: None,
+        }),
+    };
+    let mut encoded = Vec::new();
+    bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
+    tanaka.node_handler().network().send(endpoint, &encoded);
+    takuro.process_next_event_with_timeout_for_test(Duration::from_secs(1)).unwrap();
+
+    takuro.handle_input_line_for_test("/trust add tanaka").unwrap();
+    drop(tanaka);
+
+    let disconnect_deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < disconnect_deadline && !takuro.state().peers().is_empty() {
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+    assert!(takuro.state().peers().is_empty());
+
+    takuro.handle_input_line_for_test(&format!("/trust remove {fingerprint}")).unwrap();
+    takuro.handle_input_line_for_test("/run 1").unwrap();
+
+    let transcript = takuro
+        .state()
+        .messages()
+        .iter()
+        .map(|message| message.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(transcript.contains("removed trust for"));
+    assert!(transcript.contains("permission denied: proposal 1 came from untrusted peer tanaka"));
+    assert!(takuro.state().pending_confirmation().is_none());
+    assert!(!transcript.contains("review-auth executed"));
 }
