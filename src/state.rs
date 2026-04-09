@@ -8,6 +8,8 @@ use rgb::RGB8;
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
+use serde::{Deserialize, Serialize};
+
 use crate::avatar::AvatarSize;
 use crate::config::AiProvider;
 use crate::message::{AiPayload, PeerInfo, StructuredOutput};
@@ -30,13 +32,20 @@ pub enum ProgressState {
     Completed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AiMode {
     Clerk,
     Listener,
     Moderator,
     Operator,
     Companion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeerReadiness {
+    Connecting,
+    Ready,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,8 +283,18 @@ impl State {
         self.trusted_peer_fingerprints.insert(fingerprint.into());
     }
 
+    pub fn untrust_peer_fingerprint(&mut self, fingerprint: &str) {
+        self.trusted_peer_fingerprints.remove(fingerprint);
+    }
+
     pub fn is_trusted_peer(&self, fingerprint: &str) -> bool {
         self.trusted_peer_fingerprints.contains(fingerprint)
+    }
+
+    pub fn trusted_peer_fingerprints(&self) -> Vec<String> {
+        let mut fingerprints = self.trusted_peer_fingerprints.iter().cloned().collect::<Vec<_>>();
+        fingerprints.sort();
+        fingerprints
     }
 
     pub fn pending_confirmation(&self) -> Option<&PendingSkillExecution> {
@@ -310,6 +329,14 @@ impl State {
                 trusted,
             })
             .collect();
+    }
+
+    pub fn set_skill_proposal_trust(&mut self, source_peer: &str, trusted: bool) {
+        for proposal in &mut self.pending_skill_proposals {
+            if proposal.source_peer.as_deref() == Some(source_peer) {
+                proposal.trusted = trusted;
+            }
+        }
     }
 
     pub fn clear_skill_proposals(&mut self) {
@@ -348,6 +375,18 @@ impl State {
         if self.lan_users.get(&endpoint).is_some_and(|known| known == user) {
             return;
         }
+        if self
+            .peers
+            .iter()
+            .any(|(known_endpoint, peer)| {
+                *known_endpoint != endpoint
+                    && peer.user_name == user
+                    && peer_readiness(peer) == PeerReadiness::Ready
+            })
+        {
+            return;
+        }
+        self.remove_duplicate_peer_entries(endpoint, user);
         self.lan_users.insert(endpoint, user.into());
         self.peers.entry(endpoint).or_insert_with(|| PeerInfo {
             user_name: user.into(),
@@ -370,6 +409,7 @@ impl State {
     }
 
     pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {
+        self.remove_duplicate_peer_entries(endpoint, &peer.user_name);
         self.peers.insert(endpoint, peer);
     }
 
@@ -382,6 +422,29 @@ impl State {
         peers.sort();
         peers.dedup();
         peers
+    }
+
+    pub fn peer_endpoint_by_name(&self, user_name: &str) -> Option<Endpoint> {
+        self.peers
+            .iter()
+            .filter(|(_, peer)| peer.user_name == user_name)
+            .max_by_key(|(_, peer)| matches!(peer_readiness(peer), PeerReadiness::Ready))
+            .map(|(endpoint, _)| *endpoint)
+    }
+
+    pub fn peer_fingerprint_by_name(&self, user_name: &str) -> Option<String> {
+        self.peer_endpoint_by_name(user_name).and_then(|endpoint| self.peer_fingerprint(endpoint))
+    }
+
+    pub fn peer_readiness(&self, endpoint: Endpoint) -> PeerReadiness {
+        self.peers.get(&endpoint).map(peer_readiness).unwrap_or(PeerReadiness::Connecting)
+    }
+
+    pub fn peer_is_ready(&self, user_name: &str) -> bool {
+        self.peers
+            .iter()
+            .filter(|(_, peer)| peer.user_name == user_name)
+            .any(|(_, peer)| peer_readiness(peer) == PeerReadiness::Ready)
     }
 
     pub fn peer_info_list(&self) -> Vec<(String, String)> {
@@ -410,8 +473,13 @@ impl State {
         self.room_engine.create_room(&self.local_user_name, &refs, ai_mode)
     }
 
-    pub fn accept_room(&mut self, room_id: &str, member_ids: &[String]) -> Room {
-        self.room_engine.create_remote_room(room_id, member_ids)
+    pub fn accept_room(
+        &mut self,
+        room_id: &str,
+        member_ids: &[String],
+        ai_mode: Option<AiMode>,
+    ) -> Room {
+        self.room_engine.create_remote_room(room_id, member_ids, ai_mode)
     }
 
     pub fn room_ids(&self) -> Vec<String> {
@@ -721,6 +789,20 @@ impl State {
             message.rendered_text(),
         )
     }
+
+    fn remove_duplicate_peer_entries(&mut self, endpoint: Endpoint, user: &str) {
+        let duplicate_endpoints = self
+            .lan_users
+            .iter()
+            .filter_map(|(known_endpoint, known_user)| {
+                (*known_endpoint != endpoint && known_user == user).then_some(*known_endpoint)
+            })
+            .collect::<Vec<_>>();
+        for duplicate_endpoint in duplicate_endpoints {
+            self.lan_users.remove(&duplicate_endpoint);
+            self.peers.remove(&duplicate_endpoint);
+        }
+    }
 }
 
 pub fn peer_fingerprint(peer: &PeerInfo) -> String {
@@ -728,6 +810,14 @@ pub fn peer_fingerprint(peer: &PeerInfo) -> String {
     hasher.update(peer.user_name.as_bytes());
     hasher.update(peer.node_version.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+pub fn peer_readiness(peer: &PeerInfo) -> PeerReadiness {
+    if peer.server_port == 0 || peer.node_version == "unknown" {
+        PeerReadiness::Connecting
+    } else {
+        PeerReadiness::Ready
+    }
 }
 
 #[cfg(test)]
