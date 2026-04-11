@@ -1,5 +1,6 @@
 pub mod ai_cmd;
 pub mod avatar_cmd;
+pub mod peer_cmd;
 pub mod room_cmd;
 pub mod send_file;
 pub mod skill_cmd;
@@ -43,7 +44,11 @@ pub enum AppCommand {
     RoomCreate { peers: Vec<String>, ai_mode: Option<AiMode> },
     RoomList,
     RoomSwitch(String),
+    PeerConnect(String),
     Peers,
+    TrustList,
+    TrustAdd(String),
+    TrustRemove(String),
     Skills,
     Skill { name: String, args: Vec<String> },
     RunProposal(usize),

@@ -150,6 +150,7 @@ fn help_command_groups_commands_with_descriptions() {
     assert!(rendered.contains("AI"));
     assert!(rendered.contains("Summary"));
     assert!(rendered.contains("Rooms"));
+    assert!(rendered.contains("Peers"));
     assert!(rendered.contains("Skills"));
     assert!(rendered.contains("Avatar"));
     assert!(rendered.contains("Files"));
@@ -161,6 +162,8 @@ fn help_command_groups_commands_with_descriptions() {
     assert!(rendered.contains("/ai mode <clerk|listener|moderator|operator|companion>"));
     assert!(rendered.contains("/room switch <room_id>"));
     assert!(rendered.contains("Switch active room"));
+    assert!(rendered.contains("/peer connect <host:port>"));
+    assert!(rendered.contains("/trust add <peer|fingerprint>"));
     assert!(rendered.contains("/skill <name> [args]"));
     assert!(rendered.contains("Run a skill"));
     assert!(rendered.contains("/send <file>"));

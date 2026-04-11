@@ -33,11 +33,15 @@ fn room_engine_lists_room_members_in_stable_order() {
 }
 
 #[test]
-fn remote_room_does_not_invent_ai_mode() {
+fn remote_room_preserves_ai_mode_from_creator() {
     let mut engine = RoomEngine::default();
-    let room = engine.create_remote_room("room-1", &["takuro".into(), "ops-ai".into()]);
+    let room = engine.create_remote_room(
+        "room-1",
+        &["takuro".into(), "ops-ai".into()],
+        Some(AiMode::Clerk),
+    );
 
-    assert_eq!(room.ai_mode, None);
+    assert_eq!(room.ai_mode, Some(AiMode::Clerk));
     assert_eq!(room.members[1].kind, MemberKind::Ai);
-    assert_eq!(room.members[1].ai_mode, None);
+    assert_eq!(room.members[1].ai_mode, Some(AiMode::Clerk));
 }

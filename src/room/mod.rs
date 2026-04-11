@@ -42,18 +42,26 @@ impl RoomEngine {
         self.active_room_id = Some(room.id);
     }
 
-    pub fn create_remote_room(&mut self, room_id: &str, member_ids: &[String]) -> Room {
+    pub fn create_remote_room(
+        &mut self,
+        room_id: &str,
+        member_ids: &[String],
+        ai_mode: Option<AiMode>,
+    ) -> Room {
         let members = member_ids
             .iter()
             .map(|member_id| {
                 if member_id == "ops-ai" {
-                    Member::remote_ai(member_id.clone())
+                    match ai_mode.clone() {
+                        Some(ai_mode) => Member::ai(member_id.clone(), ai_mode),
+                        None => Member::remote_ai(member_id.clone()),
+                    }
                 } else {
                     Member::human(member_id.clone())
                 }
             })
             .collect::<Vec<_>>();
-        let room = Room { id: room_id.to_string(), members, ai_mode: None };
+        let room = Room { id: room_id.to_string(), members, ai_mode };
         self.insert_room(room.clone());
         room
     }

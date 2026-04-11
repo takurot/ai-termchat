@@ -1,4 +1,19 @@
-use triadchat::message::{NetMessage, PeerInfo, SkillResultPayload};
+use triadchat::message::{AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
+use triadchat::state::AiMode;
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+enum LegacyNetMessage {
+    HelloLan(String, u16),
+    HelloUser(String),
+    UserMessage(String),
+    UserData(String, Chunk),
+    Stream(Option<(Vec<rgb::RGB8>, usize, usize)>),
+    AiMessage(AiPayload),
+    PeerInfo(PeerInfo),
+    RoomCreate(String, Vec<String>),
+    RoomJoin(String),
+    SkillResult(SkillResultPayload),
+}
 
 #[test]
 fn peer_info_round_trips_through_bincode() {
@@ -27,6 +42,11 @@ fn peer_info_round_trips_through_bincode() {
 fn room_and_skill_variants_round_trip_through_bincode() {
     let room_create =
         NetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
+    let room_create_v2 = NetMessage::RoomCreateV2 {
+        room_id: "room-1".into(),
+        members: vec!["takuro".into(), "tanaka".into()],
+        ai_mode: Some(AiMode::Clerk),
+    };
     let room_join = NetMessage::RoomJoin("room-1".into());
     let skill_done = NetMessage::SkillResult(SkillResultPayload {
         skill_name: "review-auth".into(),
@@ -34,7 +54,7 @@ fn room_and_skill_variants_round_trip_through_bincode() {
         success: true,
     });
 
-    for message in [room_create, room_join, skill_done] {
+    for message in [room_create, room_create_v2, room_join, skill_done] {
         let encoded = bincode::serialize(&message).expect("message should serialize");
         let decoded: NetMessage =
             bincode::deserialize(&encoded).expect("message should deserialize");
@@ -47,6 +67,18 @@ fn room_and_skill_variants_round_trip_through_bincode() {
                 assert_eq!(id, expected_id);
                 assert_eq!(members, expected_members);
             }
+            (
+                NetMessage::RoomCreateV2 {
+                    room_id: expected_id,
+                    members: expected_members,
+                    ai_mode: expected_mode,
+                },
+                NetMessage::RoomCreateV2 { room_id: id, members, ai_mode: mode },
+            ) => {
+                assert_eq!(id, expected_id);
+                assert_eq!(members, expected_members);
+                assert_eq!(mode, expected_mode);
+            }
             (NetMessage::RoomJoin(expected_id), NetMessage::RoomJoin(id)) => {
                 assert_eq!(id, expected_id);
             }
@@ -57,5 +89,23 @@ fn room_and_skill_variants_round_trip_through_bincode() {
             }
             pair => panic!("unexpected round-trip pair: {:?}", pair),
         }
+    }
+}
+
+#[test]
+fn legacy_room_create_bytes_remain_decodable() {
+    let legacy =
+        LegacyNetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
+
+    let encoded = bincode::serialize(&legacy).expect("legacy message should serialize");
+    let decoded: NetMessage =
+        bincode::deserialize(&encoded).expect("new decoder should accept legacy bytes");
+
+    match decoded {
+        NetMessage::RoomCreate(room_id, members) => {
+            assert_eq!(room_id, "room-1");
+            assert_eq!(members, vec!["takuro", "tanaka"]);
+        }
+        other => panic!("unexpected decoded message: {:?}", other),
     }
 }
