@@ -1452,8 +1452,11 @@ fn help_text() -> String {
         ]),
     ];
 
-    for (title, commands) in sections {
-        out.push_str(&format!("\n【 {} 】\n", title));
+    for (i, (title, commands)) in sections.into_iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(&format!("【 {} 】\n", title));
         for (cmd, desc) in commands {
             if cmd.is_empty() {
                 out.push_str(&format!("    {}\n", desc));

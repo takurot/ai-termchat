@@ -13,6 +13,7 @@ use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::{Block, Borders, Paragraph, Wrap};
 use tui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::avatar::loader::AvatarManager;
 use crate::commands::CommandManager;
@@ -122,16 +123,6 @@ fn draw_messages_panel(
     theme: &Theme,
     language: &LanguageConfig,
 ) {
-    draw_messages_panel_inner(frame, state, chunk, theme, language)
-}
-
-fn draw_messages_panel_inner(
-    frame: &mut Frame<impl Backend>,
-    state: &State,
-    chunk: Rect,
-    theme: &Theme,
-    language: &LanguageConfig,
-) {
     let message_colors = &theme.message_colors;
     let ui_messages = messages(&language.ui);
 
@@ -182,8 +173,11 @@ fn draw_messages_panel_inner(
                     let header_date = Span::styled(date, Style::default().fg(theme.date_color));
                     let header_user = Span::styled(&message.user, Style::default().fg(user_color));
                     
+                    if content.is_empty() {
+                        return vec![Spans::from(vec![header_date, header_user])];
+                    }
+
                     // Calculate indentation based on date only to align with username
-                    use unicode_width::UnicodeWidthStr;
                     let indent_width = header_date.content.width();
                     let indent = " ".repeat(indent_width);
 
