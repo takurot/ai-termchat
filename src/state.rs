@@ -229,6 +229,139 @@ impl State {
         self.scroll_messages_view
     }
 
+    pub fn messages_scroll(&mut self, movement: ScrollMovement) {
+        match movement {
+            ScrollMovement::Up => {
+                if self.scroll_messages_view > 0 {
+                    self.scroll_messages_view -= 1;
+                }
+                // If user scrolls up, disable auto-scroll
+                self.auto_scroll = false;
+            }
+            ScrollMovement::Down => {
+                self.scroll_messages_view += 1;
+                // Check if we reached the bottom to re-enable auto-scroll
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                let max_scroll = self.total_message_lines.saturating_sub(inner_height);
+                if self.scroll_messages_view >= max_scroll {
+                    self.auto_scroll = true;
+                    self.scroll_messages_view = max_scroll;
+                }
+            }
+            ScrollMovement::Start => {
+                self.scroll_messages_view = 0;
+                self.auto_scroll = false;
+            }
+        }
+    }
+
+    pub fn update_chat_viewport(&mut self, width: u16, height: u16) {
+        let changed = self.chat_panel_width != width || self.chat_panel_height != height;
+        if changed {
+            self.chat_panel_width = width;
+            self.chat_panel_height = height;
+            self.recalculate_total_lines();
+        }
+    }
+
+    fn recalculate_total_lines(&mut self) {
+        if self.chat_panel_width < 4 {
+            return;
+        }
+
+        let inner_width = self.chat_panel_width.saturating_sub(2);
+        let mut total_lines = 0;
+        for message in &self.messages {
+            total_lines += self.estimate_lines(message, inner_width as usize);
+        }
+        self.total_message_lines = total_lines;
+
+        if self.auto_scroll {
+            let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+            self.scroll_messages_view = total_lines.saturating_sub(inner_height);
+        }
+    }
+
+    fn estimate_lines(&self, message: &ChatMessage, width: usize) -> usize {
+        let date_width = 9; // "HH:MM:SS "
+        let user_width = unicode_width::UnicodeWidthStr::width(message.user.as_str());
+
+        match &message.message_type {
+            MessageType::Text(content) => {
+                let header_width = date_width + user_width + 2;
+                let first_line_width = width.saturating_sub(header_width);
+                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
+
+                if first_line_width == 0 {
+                    header_width.div_ceil(width) + content_width.div_ceil(width)
+                } else {
+                    let mut lines = 1;
+                    if content_width > first_line_width {
+                        lines += (content_width - first_line_width).div_ceil(width);
+                    }
+                    lines
+                }
+            }
+            MessageType::AiText(content) => {
+                let header_width = date_width + 10;
+                let first_line_width = width.saturating_sub(header_width);
+                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
+
+                if first_line_width == 0 {
+                    header_width.div_ceil(width) + content_width.div_ceil(width)
+                } else {
+                    let mut lines = 1;
+                    if content_width > first_line_width {
+                        lines += (content_width - first_line_width).div_ceil(width);
+                    }
+                    lines
+                }
+            }
+            MessageType::System(content, _) => {
+                let first_line_header_width = date_width + user_width;
+                let mut total_lines = 0;
+                for line in content.lines() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let first_chunk_width = width.saturating_sub(first_line_header_width);
+                    total_lines += 1;
+                    if first_chunk_width == 0 {
+                        total_lines += line_width.div_ceil(width);
+                        continue;
+                    }
+                    if line_width > first_chunk_width {
+                        let remaining = line_width - first_chunk_width;
+                        let indent_width = date_width;
+                        let wrap_width = width.saturating_sub(indent_width);
+                        total_lines += if wrap_width > 0 {
+                            remaining.div_ceil(wrap_width)
+                        } else {
+                            remaining.div_ceil(width)
+                        };
+                    }
+                }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
+            }
+            _ => 1,
+        }
+    }
+
+    fn on_message_added(&mut self) {
+        if self.chat_panel_width >= 4 {
+            let inner_width = self.chat_panel_width.saturating_sub(2);
+            let message = self.messages.last().expect("message just added");
+            self.total_message_lines += self.estimate_lines(message, inner_width as usize);
+
+            if self.auto_scroll {
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                self.scroll_messages_view =
+                    self.total_message_lines.saturating_sub(inner_height);
+            }
+        }
+    }
+
     pub fn input(&self) -> &[char] {
         &self.input
     }
@@ -565,140 +698,6 @@ impl State {
         }
     }
 
-    pub fn messages_scroll(&mut self, movement: ScrollMovement) {
-        match movement {
-            ScrollMovement::Up => {
-                if self.scroll_messages_view > 0 {
-                    self.scroll_messages_view -= 1;
-                }
-                // If user scrolls up, disable auto-scroll
-                self.auto_scroll = false;
-            }
-            ScrollMovement::Down => {
-                self.scroll_messages_view += 1;
-                // Check if we reached the bottom to re-enable auto-scroll
-                let max_scroll =
-                    self.total_message_lines.saturating_sub(self.chat_panel_height as usize);
-                if self.scroll_messages_view >= max_scroll {
-                    self.auto_scroll = true;
-                    self.scroll_messages_view = max_scroll;
-                }
-            }
-            ScrollMovement::Start => {
-                self.scroll_messages_view = 0;
-                self.auto_scroll = false;
-            }
-        }
-    }
-
-    pub fn update_chat_viewport(&mut self, width: u16, height: u16) {
-        let changed = self.chat_panel_width != width || self.chat_panel_height != height;
-        if changed {
-            self.chat_panel_width = width;
-            self.chat_panel_height = height;
-            self.recalculate_total_lines();
-        }
-    }
-
-    fn recalculate_total_lines(&mut self) {
-        if self.chat_panel_width < 4 {
-            // Panel too narrow to render properly
-            return;
-        }
-
-        let inner_width = self.chat_panel_width.saturating_sub(2); // Subtract borders
-        let mut total_lines = 0;
-        for message in &self.messages {
-            total_lines += self.estimate_lines(message, inner_width as usize);
-        }
-        self.total_message_lines = total_lines;
-
-        if self.auto_scroll {
-            let inner_height = self.chat_panel_height.saturating_sub(2);
-            self.scroll_messages_view = total_lines.saturating_sub(inner_height as usize);
-        }
-    }
-
-    fn estimate_lines(&self, message: &ChatMessage, width: usize) -> usize {
-        let date_width = 9; // "HH:MM:SS "
-        let user_width = unicode_width::UnicodeWidthStr::width(message.user.as_str());
-
-        match &message.message_type {
-            MessageType::Text(content) => {
-                // Header: "HH:MM:SS user: "
-                let header_width = date_width + user_width + 2;
-                let first_line_width = width.saturating_sub(header_width);
-
-                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
-                if first_line_width == 0 {
-                    // Header takes entire line or more.
-                    // Estimate header lines + content lines.
-                    let header_lines = (header_width + width - 1) / width;
-                    let content_lines = (content_width + width - 1) / width;
-                    return header_lines + content_lines;
-                }
-
-                let mut lines = 1;
-                if content_width > first_line_width {
-                    let remaining_width = content_width - first_line_width;
-                    lines += (remaining_width + width - 1) / width;
-                }
-                lines
-            }
-            MessageType::AiText(content) => {
-                // Header: "HH:MM:SS ops-ai ✦: "
-                let header_width = date_width + 10; // "ops-ai ✦: " is 10 chars
-                let first_line_width = width.saturating_sub(header_width);
-
-                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
-                if first_line_width == 0 {
-                    let header_lines = (header_width + width - 1) / width;
-                    let content_lines = (content_width + width - 1) / width;
-                    return header_lines + content_lines;
-                }
-
-                let mut lines = 1;
-                if content_width > first_line_width {
-                    let remaining_width = content_width - first_line_width;
-                    lines += (remaining_width + width - 1) / width;
-                }
-                lines
-            }
-            MessageType::System(content, _) => {
-                // System messages align subsequent lines with timestamp width
-                let first_line_header_width = date_width + user_width;
-                let mut total_lines = 0;
-                for line in content.lines() {
-                    let line_width = unicode_width::UnicodeWidthStr::width(line);
-                    let first_chunk_width = width.saturating_sub(first_line_header_width);
-
-                    total_lines += 1;
-                    if first_chunk_width == 0 {
-                        // Header too wide, content starts on next line
-                        total_lines += (line_width + width - 1) / width;
-                        continue;
-                    }
-
-                    if line_width > first_chunk_width {
-                        let remaining = line_width - first_chunk_width;
-                        let indent_width = date_width;
-                        let wrap_width = width.saturating_sub(indent_width);
-                        if wrap_width > 0 {
-                            total_lines += (remaining + wrap_width - 1) / wrap_width;
-                        } else {
-                            total_lines += (remaining + width - 1) / width;
-                        }
-                    }
-                }
-                if content.is_empty() {
-                    total_lines = 1;
-                }
-                total_lines
-            }
-            _ => 1, // Connection, Disconnection, Progress are usually 1 line
-        }
-    }
-
     pub fn room_list_scroll(&self) -> usize {
         self.room_list_scroll
     }
@@ -780,20 +779,6 @@ impl State {
         let len = entry.len();
         self.input = entry;
         self.input_cursor = len;
-    }
-
-    fn on_message_added(&mut self) {
-        if self.chat_panel_width >= 4 {
-            let inner_width = self.chat_panel_width.saturating_sub(2);
-            let message = self.messages.last().expect("message just added");
-            self.total_message_lines += self.estimate_lines(message, inner_width as usize);
-
-            if self.auto_scroll {
-                let inner_height = self.chat_panel_height.saturating_sub(2);
-                self.scroll_messages_view =
-                    self.total_message_lines.saturating_sub(inner_height as usize);
-            }
-        }
     }
 
     pub fn add_message(&mut self, message: ChatMessage) {

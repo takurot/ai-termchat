@@ -17,7 +17,7 @@ use crate::ui::layout::truncate;
 /// caller is responsible for the visibility decision (see `layout::should_show_side_panels`).
 pub fn draw_peers_panel(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
 ) {

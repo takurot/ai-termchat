@@ -14,7 +14,7 @@ use crate::ui::layout::truncate;
 /// Draws the ops-ai status panel below chat.
 pub fn draw_status_panel(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
 ) {
@@ -238,7 +238,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.size();
-                draw_status_panel(frame, &state, area, &avatar_manager);
+                draw_status_panel(frame, &mut state, area, &avatar_manager);
             })
             .unwrap();
 
@@ -281,7 +281,7 @@ mod tests {
         terminal
             .draw(|frame| {
                 let area = frame.size();
-                draw_status_panel(frame, &state, area, &avatar_manager);
+                draw_status_panel(frame, &mut state, area, &avatar_manager);
             })
             .unwrap();
 

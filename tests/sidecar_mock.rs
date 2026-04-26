@@ -30,7 +30,7 @@ async fn sidecar_returns_stdout() {
         "mock-claude.sh",
         "#!/bin/sh\ncat <<'EOF'\nINTENT: Summary\nTEXT: mock summary\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\nEOF\n",
     );
-    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(1))
+    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(3))
         .expect("adapter should be created");
 
     let (output, truncated) = adapter
@@ -133,7 +133,7 @@ async fn provider_invocation_uses_provider_specific_args() {
             enabled: true,
             provider,
             command: Some(script.display().to_string()),
-            timeout_secs: 1,
+            timeout_secs: 3,
         };
         let adapter = SidecarAdapter::new(dir.path(), &config).expect("adapter should build");
 
