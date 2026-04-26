@@ -119,16 +119,19 @@ fn run_uses_pending_skill_proposals_from_ai_response() {
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
     let node = app.node_handler();
 
-    node.signals().send(Signal::AiResponse(AiPayload {
-        text: "review-auth を実行すると良さそうです".into(),
-        intent: AiIntent::SkillSuggest,
-        structured: Some(StructuredOutput {
-            todos: Vec::new(),
-            decisions: Vec::new(),
-            skill_suggestions: vec!["review-auth".into()],
-            raw_text: None,
-        }),
-    }));
+    node.signals().send(Signal::AiResponse(
+        AiPayload {
+            text: "Using review-auth skill".into(),
+            intent: AiIntent::SkillSuggest,
+            structured: Some(StructuredOutput {
+                todos: Vec::new(),
+                decisions: Vec::new(),
+                skill_suggestions: vec!["review-auth".into()],
+                raw_text: None,
+            }),
+        },
+        false,
+    ));
     app.process_next_event_for_test().unwrap();
 
     app.handle_input_line_for_test("/run 1").unwrap();

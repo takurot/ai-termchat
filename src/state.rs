@@ -702,22 +702,22 @@ impl State {
     }
 
     pub fn progress_message_update(&mut self, index: usize, increment: u64) {
-        match &mut self.messages[index].message_type {
-            MessageType::Progress(state) => {
-                *state = match state {
-                    ProgressState::Started(total) => ProgressState::Working(*total, increment),
-                    ProgressState::Working(total, current) => {
-                        let new_current = *current + increment;
-                        if new_current == *total {
-                            ProgressState::Completed
-                        } else {
-                            ProgressState::Working(*total, new_current)
-                        }
+        if index >= self.messages.len() {
+            return;
+        }
+        if let MessageType::Progress(state) = &mut self.messages[index].message_type {
+            *state = match state {
+                ProgressState::Started(total) => ProgressState::Working(*total, increment),
+                ProgressState::Working(total, current) => {
+                    let new_current = *current + increment;
+                    if new_current == *total {
+                        ProgressState::Completed
+                    } else {
+                        ProgressState::Working(*total, new_current)
                     }
-                    ProgressState::Completed => ProgressState::Completed,
-                };
-            }
-            _ => panic!("Must be a Progress MessageType"),
+                }
+                ProgressState::Completed => ProgressState::Completed,
+            };
         }
     }
 

@@ -49,7 +49,7 @@ impl AiMediator {
         task: AiTask,
         transcript: &str,
         last_messages: &[String],
-    ) -> Result<AiPayload> {
+    ) -> Result<(AiPayload, bool)> {
         let prompt = match task {
             AiTask::Summary => summary_prompt(transcript, &self.language.ai_output),
             AiTask::Todos => todos_prompt(transcript, &self.language.ai_output),
@@ -65,8 +65,8 @@ impl AiMediator {
                 mention_prompt(message, transcript, &self.language.ai_output)
             }
         };
-        let raw = self.sidecar.ask(&prompt).await?;
-        Ok(parse_ai_payload(&raw))
+        let (raw, truncated) = self.sidecar.ask(&prompt).await?;
+        Ok((parse_ai_payload(&raw), truncated))
     }
 
     pub async fn run_skill(&self, skill_name: &str, args: &[String]) -> Result<String> {

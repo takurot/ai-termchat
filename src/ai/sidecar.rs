@@ -54,17 +54,19 @@ impl SidecarAdapter {
         })
     }
 
-    pub async fn ask(&self, prompt: &str) -> Result<String> {
+    pub async fn ask(&self, prompt: &str) -> Result<(String, bool)> {
         self.run_prompt(prompt, self.timeout).await
     }
 
     pub async fn run_skill(&self, skill_name: &str, args: &[String]) -> Result<String> {
         let suffix = if args.is_empty() { String::new() } else { format!(" {}", args.join(" ")) };
-        self.run_prompt(&format!("/{skill_name}{suffix}"), Duration::from_secs(60)).await
+        let (output, _) =
+            self.run_prompt(&format!("/{skill_name}{suffix}"), Duration::from_secs(60)).await?;
+        Ok(output)
     }
 
-    async fn run_prompt(&self, prompt: &str, timeout: Duration) -> Result<String> {
-        let prompt = truncate_prompt(prompt, 50_000);
+    async fn run_prompt(&self, prompt: &str, timeout: Duration) -> Result<(String, bool)> {
+        let (prompt, truncated) = truncate_prompt(prompt, 50_000);
         let output = tokio::time::timeout(timeout, async {
             Command::new(&self.command)
                 .current_dir(&self.workspace)
@@ -86,12 +88,13 @@ impl SidecarAdapter {
             bail!("empty response");
         }
 
-        Ok(stdout)
+        Ok((stdout, truncated))
     }
 }
 
-fn truncate_prompt(prompt: &str, max_chars: usize) -> String {
-    prompt.chars().take(max_chars).collect()
+fn truncate_prompt(prompt: &str, max_chars: usize) -> (String, bool) {
+    let truncated = prompt.chars().count() > max_chars;
+    (prompt.chars().take(max_chars).collect(), truncated)
 }
 
 fn resolve_command(command: &str) -> Result<PathBuf> {

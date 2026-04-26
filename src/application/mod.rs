@@ -44,7 +44,7 @@ use crate::util::{Error, Reportable, Result};
 pub enum Signal {
     Terminal(TermEvent),
     Action(Box<dyn Action>),
-    AiResponse(AiPayload),
+    AiResponse(AiPayload, bool),
     AiFailed(String),
     SkillDone(SkillResultPayload),
     DiscoveryRetry,
@@ -262,7 +262,9 @@ impl<'a> Application<'a> {
             NodeEvent::Signal(signal) => match signal {
                 Signal::Terminal(term_event) => self.process_terminal_event(term_event)?,
                 Signal::Action(action) => self.process_action(action),
-                Signal::AiResponse(payload) => self.process_ai_response(payload),
+                Signal::AiResponse(payload, truncated) => {
+                    self.process_ai_response(payload, truncated)
+                }
                 Signal::AiFailed(error) => self.process_ai_failure(error),
                 Signal::SkillDone(payload) => self.process_skill_done(payload),
                 Signal::DiscoveryRetry => self.handle_discovery_retry(),
@@ -482,12 +484,10 @@ impl<'a> Application<'a> {
                     format!("{} (me)", self.config.user_name),
                     MessageType::Text(input.clone()),
                 ));
-                for endpoint in self.state.all_user_endpoints() {
-                    self.node.network().send(
-                        endpoint,
-                        self.encoder.encode(NetMessage::UserMessage(input.clone())),
-                    );
-                }
+                let message = self.encoder.encode(NetMessage::UserMessage(input.clone()));
+                let endpoints = self.state.all_user_endpoints();
+                crate::util::send_all(self.node.network(), &endpoints, message)
+                    .report_if_err(&mut self.state);
                 self.state.human_streak += 1;
                 let trigger = TriggerConfig::from_frequency_and_mode(
                     self.state.ai_frequency.clone(),
@@ -572,22 +572,45 @@ impl<'a> Application<'a> {
                 let room = self.state.create_room(&peers, ai_mode.clone());
                 let member_ids =
                     room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
-                for endpoint in self.state.all_user_endpoints() {
-                    if let Some(user_name) = self.state.user_name(endpoint) {
-                        if peers.iter().any(|peer| peer == user_name) {
-                            let message = if self.peer_supports_room_create_v2(endpoint) {
-                                NetMessage::RoomCreateV2 {
-                                    room_id: room.id.clone(),
-                                    members: member_ids.clone(),
-                                    ai_mode: ai_mode.clone(),
-                                }
-                            } else {
-                                NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
-                            };
-                            self.node.network().send(endpoint, self.encoder.encode(message));
+
+                let endpoints = self.state.all_user_endpoints();
+                // Filter endpoints to only send to those who are in the room
+                let target_endpoints = endpoints
+                    .into_iter()
+                    .filter(|&e| self.state.user_name(e).is_some_and(|name| peers.contains(name)))
+                    .collect::<Vec<_>>();
+
+                // Broadcast RoomCreate (V1 or V2 depending on peer version)
+                let mut errors = Vec::new();
+                for &endpoint in &target_endpoints {
+                    let message = if self.peer_supports_room_create_v2(endpoint) {
+                        NetMessage::RoomCreateV2 {
+                            room_id: room.id.clone(),
+                            members: member_ids.clone(),
+                            ai_mode: ai_mode.clone(),
+                        }
+                    } else {
+                        NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
+                    };
+
+                    let encoded = self.encoder.encode(message);
+                    match self.node.network().send(endpoint, encoded) {
+                        message_io::network::SendStatus::Sent => (),
+                        status => {
+                            errors.push((
+                                endpoint,
+                                std::io::Error::other(format!(
+                                    "Send failed with status: {:?}",
+                                    status
+                                )),
+                            ));
                         }
                     }
                 }
+                if !errors.is_empty() {
+                    Err(errors).report_if_err(&mut self.state);
+                }
+
                 self.state.add_system_info_message(format!("created room {}", room.id));
             }
             AppCommand::RoomList => {
@@ -808,7 +831,9 @@ impl<'a> Application<'a> {
 
         if self.test_mode {
             match self.runtime.block_on(ai_mediator.request(task, &transcript, &last_messages)) {
-                Ok(payload) => self.record_ai_response(payload, true, None, None, true),
+                Ok((payload, truncated)) => {
+                    self.record_ai_response(payload, true, None, None, true, truncated)
+                }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -817,7 +842,9 @@ impl<'a> Application<'a> {
         let node = self.node.clone();
         let task_handle = self.runtime.handle().spawn(async move {
             match ai_mediator.request(task, &transcript, &last_messages).await {
-                Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
+                Ok((payload, truncated)) => {
+                    node.signals().send(Signal::AiResponse(payload, truncated))
+                }
                 Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
             }
         });
@@ -847,7 +874,9 @@ impl<'a> Application<'a> {
                 &transcript,
                 &last_messages,
             )) {
-                Ok(payload) => self.record_ai_response(payload, true, None, None, true),
+                Ok((payload, truncated)) => {
+                    self.record_ai_response(payload, true, None, None, true, truncated)
+                }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -856,15 +885,17 @@ impl<'a> Application<'a> {
         let node = self.node.clone();
         let task_handle = self.runtime.handle().spawn(async move {
             match ai_mediator.request(AiTask::Mention, &transcript, &last_messages).await {
-                Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
+                Ok((payload, truncated)) => {
+                    node.signals().send(Signal::AiResponse(payload, truncated))
+                }
                 Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
             }
         });
         self.state.abort_handle = Some(task_handle.abort_handle());
     }
 
-    fn process_ai_response(&mut self, payload: AiPayload) {
-        self.record_ai_response(payload, true, None, None, true);
+    fn process_ai_response(&mut self, payload: AiPayload, truncated: bool) {
+        self.record_ai_response(payload, true, None, None, true, truncated);
     }
 
     fn process_remote_ai_response(&mut self, endpoint: Endpoint, payload: AiPayload) {
@@ -874,7 +905,7 @@ impl<'a> Application<'a> {
             .as_deref()
             .map(|fingerprint| self.state.is_trusted_peer(fingerprint))
             .unwrap_or(false);
-        self.record_ai_response(payload, false, source_peer, source_fingerprint, trusted);
+        self.record_ai_response(payload, false, source_peer, source_fingerprint, trusted, false);
     }
 
     fn record_ai_response(
@@ -884,6 +915,7 @@ impl<'a> Application<'a> {
         source_peer: Option<String>,
         source_fingerprint: Option<String>,
         trusted: bool,
+        truncated: bool,
     ) {
         self.state.ai_state = AiState::Idle;
         self.state.ai_thinking = false;
@@ -920,12 +952,16 @@ impl<'a> Application<'a> {
             "ai",
         );
         self.state.add_message_with_transcript(message, transcript_entry);
+        if truncated {
+            self.state.add_system_warn_message(
+                "Warning: Conversation history was truncated due to length limits. AI accuracy may be affected.".into()
+            );
+        }
         if broadcast {
-            for endpoint in self.state.all_user_endpoints() {
-                self.node
-                    .network()
-                    .send(endpoint, self.encoder.encode(NetMessage::AiMessage(payload.clone())));
-            }
+            let message = self.encoder.encode(NetMessage::AiMessage(payload.clone()));
+            let endpoints = self.state.all_user_endpoints();
+            crate::util::send_all(self.node.network(), &endpoints, message)
+                .report_if_err(&mut self.state);
         }
         self.righ_the_bell();
     }
@@ -966,9 +1002,10 @@ impl<'a> Application<'a> {
         self.state.add_message_with_transcript(message, transcript_entry);
         if broadcast {
             let net_message = NetMessage::SkillResult(payload);
-            for endpoint in self.state.all_user_endpoints() {
-                self.node.network().send(endpoint, self.encoder.encode(net_message.clone()));
-            }
+            let message = self.encoder.encode(net_message);
+            let endpoints = self.state.all_user_endpoints();
+            crate::util::send_all(self.node.network(), &endpoints, message)
+                .report_if_err(&mut self.state);
         }
     }
 

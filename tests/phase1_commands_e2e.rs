@@ -52,16 +52,19 @@ fn phase1_skill_commands_execute_without_polluting_transcript() {
 
     app.handle_input_line_for_test("/skills").unwrap();
 
-    node.signals().send(Signal::AiResponse(AiPayload {
-        text: "review-auth を実行".into(),
-        intent: AiIntent::SkillSuggest,
-        structured: Some(StructuredOutput {
-            todos: Vec::new(),
-            decisions: Vec::new(),
-            skill_suggestions: vec!["review-auth".into()],
-            raw_text: None,
-        }),
-    }));
+    node.signals().send(Signal::AiResponse(
+        AiPayload {
+            text: "review-auth を実行".into(),
+            intent: AiIntent::SkillSuggest,
+            structured: Some(StructuredOutput {
+                todos: Vec::new(),
+                decisions: Vec::new(),
+                skill_suggestions: vec!["review-auth".into()],
+                raw_text: None,
+            }),
+        },
+        false,
+    ));
     app.process_next_event_for_test().unwrap();
 
     app.handle_input_line_for_test("/run 1").unwrap();
