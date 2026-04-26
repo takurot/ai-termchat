@@ -42,7 +42,7 @@ use crate::util::{Error, Reportable, Result};
 pub enum Signal {
     Terminal(TermEvent),
     Action(Box<dyn Action>),
-    AiResponse(AiPayload),
+    AiResponse(AiPayload, bool),
     AiFailed(String),
     SkillDone(SkillResultPayload),
     Close(Option<Error>),
@@ -238,7 +238,7 @@ impl<'a> Application<'a> {
             NodeEvent::Signal(signal) => match signal {
                 Signal::Terminal(term_event) => self.process_terminal_event(term_event)?,
                 Signal::Action(action) => self.process_action(action),
-                Signal::AiResponse(payload) => self.process_ai_response(payload),
+                Signal::AiResponse(payload, truncated) => self.process_ai_response(payload, truncated),
                 Signal::AiFailed(error) => self.process_ai_failure(error),
                 Signal::SkillDone(payload) => self.process_skill_done(payload),
                 Signal::Close(error) => {
@@ -443,7 +443,7 @@ impl<'a> Application<'a> {
                 ));
                 let message = self.encoder.encode(NetMessage::UserMessage(input.clone()));
                 let endpoints = self.state.all_user_endpoints();
-                crate::util::send_all(self.node.network(), &endpoints, &message)
+                crate::util::send_all(self.node.network(), &endpoints, message)
                     .report_if_err(&mut self.state);
                 self.state.human_streak += 1;
                 let trigger = TriggerConfig::from_frequency_and_mode(
@@ -529,11 +529,11 @@ impl<'a> Application<'a> {
                 let target_endpoints = endpoints
                     .into_iter()
                     .filter(|&e| {
-                        self.state.user_name(e).map_or(false, |name| peers.contains(name))
+                        self.state.user_name(e).is_some_and(|name| peers.contains(name))
                     })
                     .collect::<Vec<_>>();
                 
-                crate::util::send_all(self.node.network(), &target_endpoints, &message)
+                crate::util::send_all(self.node.network(), &target_endpoints, message)
                     .report_if_err(&mut self.state);
 
                 self.state.add_system_info_message(format!("created room {}", room.id));
@@ -707,7 +707,9 @@ impl<'a> Application<'a> {
 
         if self.test_mode {
             match self.runtime.block_on(ai_mediator.request(task, &transcript, &last_messages)) {
-                Ok(payload) => self.record_ai_response(payload, true, None, true),
+                Ok((payload, truncated)) => {
+                    self.record_ai_response(payload, true, None, true, truncated)
+                }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -716,7 +718,9 @@ impl<'a> Application<'a> {
         let node = self.node.clone();
         let task_handle = self.runtime.handle().spawn(async move {
             match ai_mediator.request(task, &transcript, &last_messages).await {
-                Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
+                Ok((payload, truncated)) => {
+                    node.signals().send(Signal::AiResponse(payload, truncated))
+                }
                 Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
             }
         });
@@ -746,7 +750,9 @@ impl<'a> Application<'a> {
                 &transcript,
                 &last_messages,
             )) {
-                Ok(payload) => self.record_ai_response(payload, true, None, true),
+                Ok((payload, truncated)) => {
+                    self.record_ai_response(payload, true, None, true, truncated)
+                }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
             return;
@@ -755,15 +761,17 @@ impl<'a> Application<'a> {
         let node = self.node.clone();
         let task_handle = self.runtime.handle().spawn(async move {
             match ai_mediator.request(AiTask::Mention, &transcript, &last_messages).await {
-                Ok(payload) => node.signals().send(Signal::AiResponse(payload)),
+                Ok((payload, truncated)) => {
+                    node.signals().send(Signal::AiResponse(payload, truncated))
+                }
                 Err(error) => node.signals().send(Signal::AiFailed(error.to_string())),
             }
         });
         self.state.abort_handle = Some(task_handle.abort_handle());
     }
 
-    fn process_ai_response(&mut self, payload: AiPayload) {
-        self.record_ai_response(payload, true, None, true);
+    fn process_ai_response(&mut self, payload: AiPayload, truncated: bool) {
+        self.record_ai_response(payload, true, None, true, truncated);
     }
 
     fn process_remote_ai_response(&mut self, endpoint: Endpoint, payload: AiPayload) {
@@ -773,7 +781,7 @@ impl<'a> Application<'a> {
             .peer_fingerprint(endpoint)
             .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
             .unwrap_or(false);
-        self.record_ai_response(payload, false, source_peer, trusted);
+        self.record_ai_response(payload, false, source_peer, trusted, false);
     }
 
     fn record_ai_response(
@@ -782,6 +790,7 @@ impl<'a> Application<'a> {
         broadcast: bool,
         source_peer: Option<String>,
         trusted: bool,
+        truncated: bool,
     ) {
         self.state.ai_state = AiState::Idle;
         self.state.ai_thinking = false;
@@ -813,7 +822,7 @@ impl<'a> Application<'a> {
             "ai",
         );
         self.state.add_message_with_transcript(message, transcript_entry);
-        if payload.truncated {
+        if truncated {
             self.state.add_system_warn_message(
                 "Warning: Conversation history was truncated due to length limits. AI accuracy may be affected.".into()
             );
@@ -821,7 +830,7 @@ impl<'a> Application<'a> {
         if broadcast {
             let message = self.encoder.encode(NetMessage::AiMessage(payload.clone()));
             let endpoints = self.state.all_user_endpoints();
-            crate::util::send_all(self.node.network(), &endpoints, &message)
+            crate::util::send_all(self.node.network(), &endpoints, message)
                 .report_if_err(&mut self.state);
         }
         self.righ_the_bell();
@@ -865,7 +874,7 @@ impl<'a> Application<'a> {
             let net_message = NetMessage::SkillResult(payload);
             let message = self.encoder.encode(net_message);
             let endpoints = self.state.all_user_endpoints();
-            crate::util::send_all(self.node.network(), &endpoints, &message)
+            crate::util::send_all(self.node.network(), &endpoints, message)
                 .report_if_err(&mut self.state);
         }
     }

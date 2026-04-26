@@ -56,8 +56,6 @@ pub struct AiPayload {
     pub text: String,
     pub intent: AiIntent,
     pub structured: Option<StructuredOutput>,
-    #[serde(default)]
-    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

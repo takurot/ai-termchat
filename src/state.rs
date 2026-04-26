@@ -621,22 +621,19 @@ impl State {
         if index >= self.messages.len() {
             return;
         }
-        match &mut self.messages[index].message_type {
-            MessageType::Progress(state) => {
-                *state = match state {
-                    ProgressState::Started(total) => ProgressState::Working(*total, increment),
-                    ProgressState::Working(total, current) => {
-                        let new_current = *current + increment;
-                        if new_current == *total {
-                            ProgressState::Completed
-                        } else {
-                            ProgressState::Working(*total, new_current)
-                        }
+        if let MessageType::Progress(state) = &mut self.messages[index].message_type {
+            *state = match state {
+                ProgressState::Started(total) => ProgressState::Working(*total, increment),
+                ProgressState::Working(total, current) => {
+                    let new_current = *current + increment;
+                    if new_current == *total {
+                        ProgressState::Completed
+                    } else {
+                        ProgressState::Working(*total, new_current)
                     }
-                    ProgressState::Completed => ProgressState::Completed,
-                };
-            }
-            _ => {}
+                }
+                ProgressState::Completed => ProgressState::Completed,
+            };
         }
     }
 

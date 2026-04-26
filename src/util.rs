@@ -11,10 +11,8 @@ pub fn send_all(
         match network.send(endpoint, message) {
             SendStatus::Sent => (),
             status => {
-                let error = std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Send failed with status: {:?}", status),
-                );
+                let error =
+                    std::io::Error::other(format!("Send failed with status: {:?}", status));
                 errors.push((endpoint, error));
             }
         }
@@ -55,7 +53,6 @@ pub fn split_each(input: String, width: usize) -> Vec<String> {
 pub type Error = anyhow::Error;
 pub type Result<T> = anyhow::Result<T>;
 
-//TODO: Should send the file even if some endpoint of send_all gives an error.
 pub fn stringify_sendall_errors(e: Vec<(message_io::network::Endpoint, std::io::Error)>) -> String {
     let mut out = String::new();
     for (endpoint, error) in e {

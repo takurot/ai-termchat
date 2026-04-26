@@ -45,7 +45,7 @@ fn pump_until<F>(
 
 #[test]
 fn peer_handshake_and_room_create_propagates() {
-    let discovery_port = 38000 + (rand::random::<u16>() % 1000);
+    let discovery_port = 30000 + (rand::random::<u16>() % 10000);
     let takuro_config = test_config("takuro", discovery_port);
     let tanaka_config = test_config("tanaka", discovery_port);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
@@ -80,7 +80,7 @@ fn peer_handshake_and_room_create_propagates() {
 
 #[test]
 fn room_and_peer_commands_show_richer_metadata() {
-    let discovery_port = 39000 + (rand::random::<u16>() % 1000);
+    let discovery_port = 30000 + (rand::random::<u16>() % 10000);
     let takuro_config = test_config("takuro", discovery_port);
     let tanaka_config = test_config("tanaka", discovery_port);
     let sato_config = test_config("sato", discovery_port);
@@ -144,7 +144,7 @@ fn room_and_peer_commands_show_richer_metadata() {
 
 #[test]
 fn room_switch_rejects_zero_index() {
-    let discovery_port = 40000 + (rand::random::<u16>() % 1000);
+    let discovery_port = 30000 + (rand::random::<u16>() % 10000);
     let takuro_config = test_config("takuro", discovery_port);
     let tanaka_config = test_config("tanaka", discovery_port);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();

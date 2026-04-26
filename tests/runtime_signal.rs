@@ -12,12 +12,14 @@ fn tokio_runtime_can_send_ai_signal_back_into_application_loop() {
 
     app.runtime_handle().spawn(async move {
         tokio::time::sleep(Duration::from_millis(25)).await;
-        node.signals().send(Signal::AiResponse(AiPayload {
-            text: "summary from runtime".into(),
-            intent: AiIntent::Summary,
-            structured: Some(StructuredOutput::default()),
-            truncated: false,
-        }));
+        node.signals().send(Signal::AiResponse(
+            AiPayload {
+                text: "summary from runtime".into(),
+                intent: AiIntent::Summary,
+                structured: Some(StructuredOutput::default()),
+            },
+            false,
+        ));
     });
 
     app.process_next_event_for_test().expect("ai signal should be processed");
