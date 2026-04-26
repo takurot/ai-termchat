@@ -122,6 +122,16 @@ fn draw_messages_panel(
     theme: &Theme,
     language: &LanguageConfig,
 ) {
+    draw_messages_panel_inner(frame, state, chunk, theme, language)
+}
+
+fn draw_messages_panel_inner(
+    frame: &mut Frame<impl Backend>,
+    state: &State,
+    chunk: Rect,
+    theme: &Theme,
+    language: &LanguageConfig,
+) {
     let message_colors = &theme.message_colors;
     let ui_messages = messages(&language.ui);
 
@@ -129,7 +139,7 @@ fn draw_messages_panel(
         .messages()
         .iter()
         .rev()
-        .map(|message| {
+        .flat_map(|message| {
             let color = if let Some(id) = state.users_id().get(&message.user) {
                 message_colors[id % message_colors.len()]
             } else {
@@ -137,16 +147,16 @@ fn draw_messages_panel(
             };
             let date = message.date.format("%H:%M:%S ").to_string();
             match &message.message_type {
-                MessageType::Connection => Spans::from(vec![
+                MessageType::Connection => vec![Spans::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
                     Span::styled(&message.user, Style::default().fg(color)),
                     Span::styled(ui_messages.connected, Style::default().fg(color)),
-                ]),
-                MessageType::Disconnection => Spans::from(vec![
+                ])],
+                MessageType::Disconnection => vec![Spans::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
                     Span::styled(&message.user, Style::default().fg(color)),
                     Span::styled(ui_messages.disconnected, Style::default().fg(color)),
-                ]),
+                ])],
                 MessageType::Text(content) => {
                     let mut ui_message = vec![
                         Span::styled(date, Style::default().fg(theme.date_color)),
@@ -154,28 +164,46 @@ fn draw_messages_panel(
                         Span::styled(": ", Style::default().fg(color)),
                     ];
                     ui_message.extend(parse_content(content, theme));
-                    Spans::from(ui_message)
+                    vec![Spans::from(ui_message)]
                 }
-                MessageType::AiText(content) => Spans::from(vec![
+                MessageType::AiText(content) => vec![Spans::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
                     Span::styled("ops-ai ✦", Style::default().fg(Color::LightCyan)),
                     Span::styled(": ", Style::default().fg(Color::LightCyan)),
                     Span::styled(content, Style::default().fg(Color::LightCyan)),
-                ]),
+                ])],
                 MessageType::System(content, msg_type) => {
                     let (user_color, content_color) = match msg_type {
                         SystemMessageType::Info => theme.system_info_color,
                         SystemMessageType::Warning => theme.system_warning_color,
                         SystemMessageType::Error => theme.system_error_color,
                     };
-                    Spans::from(vec![
-                        Span::styled(date, Style::default().fg(theme.date_color)),
-                        Span::styled(&message.user, Style::default().fg(user_color)),
-                        Span::styled(content, Style::default().fg(content_color)),
-                    ])
+                    
+                    let header_date = Span::styled(date, Style::default().fg(theme.date_color));
+                    let header_user = Span::styled(&message.user, Style::default().fg(user_color));
+                    
+                    // Calculate indentation based on date and user name
+                    use unicode_width::UnicodeWidthStr;
+                    let indent_width = header_date.content.width() + header_user.content.width();
+                    let indent = " ".repeat(indent_width);
+
+                    content.lines().enumerate().map(|(i, line)| {
+                        if i == 0 {
+                            Spans::from(vec![
+                                header_date.clone(),
+                                header_user.clone(),
+                                Span::styled(line, Style::default().fg(content_color)),
+                            ])
+                        } else {
+                            Spans::from(vec![
+                                Span::raw(indent.clone()),
+                                Span::styled(line, Style::default().fg(content_color)),
+                            ])
+                        }
+                    }).collect::<Vec<_>>()
                 }
                 MessageType::Progress(state) => {
-                    Spans::from(add_progress_bar(chunk.width, state, theme))
+                    vec![Spans::from(add_progress_bar(chunk.width, state, theme))]
                 }
             }
         })

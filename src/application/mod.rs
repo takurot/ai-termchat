@@ -1404,46 +1404,64 @@ fn human_member_names(room: &Room) -> Vec<String> {
 }
 
 fn help_text() -> String {
-    [
-        "AI",
-        "/ai mode <clerk|listener|moderator|operator|companion>  Change AI behaviour mode",
-        "/ai quiet <on|off>                                     Mute/unmute AI responses",
-        "/ai freq <low|normal|high>                             Adjust AI intervention frequency",
-        "",
-        "Summary",
-        "/summary   Summarise the conversation",
-        "/todos     List action items",
-        "/decisions List decisions made",
-        "/context   Summarise context",
-        "",
-        "Rooms",
-        "/room create @user [--ai <mode>]  Create a room with peers",
-        "/room list                        List all rooms",
-        "/room switch <room_id>            Switch active room",
-        "",
-        "Peers",
-        "/peers                            List connected peers",
-        "/peer connect <host:port>         Connect to a peer directly",
-        "/trust list                       List trusted peer fingerprints",
-        "/trust add <peer|fingerprint>     Trust a peer explicitly",
-        "/trust remove <peer|fingerprint>  Remove stored peer trust",
-        "",
-        "Skills",
-        "/skills               List available skills",
-        "/skill <name> [args]  Run a skill",
-        "/run <proposal_id>    Accept a skill proposal",
-        "/cancel               Cancel pending skill",
-        "",
-        "Avatar",
-        "/avatar set <target> <preset>             Set avatar preset",
-        "/avatar preview                           Preview your avatar",
-        "/avatar mode <compact|normal|expressive>  Set avatar size",
-        "/avatar list                              List available presets",
-        "",
-        "Files",
-        "/send <file>  Send a file to peers",
-    ]
-    .join("\n")
+    let mut out = String::new();
+    let sections = [
+        ("AI", vec![
+            ("/ai mode <mode>", "Change AI behaviour mode:"),
+            ("", "  clerk      Active assistant (auto-intervenes)"),
+            ("", "  listener   Passive observer (only responds to mentions)"),
+            ("", "  moderator  Focuses on decisions and conflicts"),
+            ("", "  operator   Executes skills on request"),
+            ("", "  companion  Casual conversational partner"),
+            ("/ai quiet <on|off>", "Mute/unmute AI responses"),
+            ("/ai freq <low|normal|high>", "Adjust AI intervention frequency"),
+        ]),
+        ("Summary", vec![
+            ("/summary", "Summarise the conversation"),
+            ("/todos", "List action items"),
+            ("/decisions", "List decisions made"),
+            ("/context", "Summarise context"),
+        ]),
+        ("Rooms", vec![
+            ("/room create @user [--ai <mode>]", "Create a room with peers"),
+            ("/room list", "List all rooms"),
+            ("/room switch <id|name>", "Switch active room"),
+        ]),
+        ("Peers", vec![
+            ("/peers", "List connected peers"),
+            ("/peer connect <host:port>", "Connect to a peer directly"),
+            ("/trust list", "List trusted peer fingerprints"),
+            ("/trust add <peer|fp>", "Trust a peer explicitly"),
+            ("/trust remove <peer|fp>", "Remove stored peer trust"),
+        ]),
+        ("Skills", vec![
+            ("/skills", "List available skills"),
+            ("/skill <name> [args]", "Run a skill manually"),
+            ("/run <id>", "Accept a skill proposal from AI"),
+            ("/cancel", "Cancel current AI task or skill"),
+        ]),
+        ("Avatar", vec![
+            ("/avatar set <target> <preset>", "Set avatar (target: self, @ops-ai)"),
+            ("/avatar list", "List available avatar presets"),
+            ("/avatar preview", "Preview your current avatar"),
+            ("/avatar mode <size>", "Set size: compact, normal, expressive"),
+        ]),
+        ("Files", vec![
+            ("/send <file>", "Send a file to peers in the room"),
+        ]),
+    ];
+
+    for (title, commands) in sections {
+        out.push_str(&format!("\n【 {} 】\n", title));
+        for (cmd, desc) in commands {
+            if cmd.is_empty() {
+                out.push_str(&format!("      {}\n", desc));
+            } else {
+                out.push_str(&format!("  {:<36} {}\n", cmd, desc));
+            }
+        }
+    }
+    out
 }
 
 impl Drop for Application<'_> {

@@ -147,25 +147,25 @@ fn help_command_groups_commands_with_descriptions() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("AI"));
-    assert!(rendered.contains("Summary"));
-    assert!(rendered.contains("Rooms"));
-    assert!(rendered.contains("Peers"));
-    assert!(rendered.contains("Skills"));
-    assert!(rendered.contains("Avatar"));
-    assert!(rendered.contains("Files"));
-    assert!(rendered.contains("Change AI behaviour mode"));
+    assert!(rendered.contains("【 AI 】"));
+    assert!(rendered.contains("【 Summary 】"));
+    assert!(rendered.contains("【 Rooms 】"));
+    assert!(rendered.contains("【 Peers 】"));
+    assert!(rendered.contains("【 Skills 】"));
+    assert!(rendered.contains("【 Avatar 】"));
+    assert!(rendered.contains("【 Files 】"));
+    assert!(rendered.contains("Change AI behaviour mode:"));
     assert!(rendered.contains("Summarise the conversation"));
     assert!(rendered.contains("Create a room with peers"));
-    assert!(rendered.contains("Set avatar preset"));
-    assert!(rendered.contains("Send a file to peers"));
-    assert!(rendered.contains("/ai mode <clerk|listener|moderator|operator|companion>"));
-    assert!(rendered.contains("/room switch <room_id>"));
+    assert!(rendered.contains("Set avatar (target: self, @ops-ai)"));
+    assert!(rendered.contains("Send a file to peers in the room"));
+    assert!(rendered.contains("/ai mode <mode>"));
+    assert!(rendered.contains("/room switch <id|name>"));
     assert!(rendered.contains("Switch active room"));
     assert!(rendered.contains("/peer connect <host:port>"));
-    assert!(rendered.contains("/trust add <peer|fingerprint>"));
+    assert!(rendered.contains("/trust add <peer|fp>"));
     assert!(rendered.contains("/skill <name> [args]"));
-    assert!(rendered.contains("Run a skill"));
+    assert!(rendered.contains("Run a skill manually"));
     assert!(rendered.contains("/send <file>"));
     assert!(rendered.contains('\n'));
 }
