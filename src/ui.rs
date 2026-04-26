@@ -169,10 +169,10 @@ fn draw_messages_panel(
                         SystemMessageType::Warning => theme.system_warning_color,
                         SystemMessageType::Error => theme.system_error_color,
                     };
-                    
+
                     let header_date = Span::styled(date, Style::default().fg(theme.date_color));
                     let header_user = Span::styled(&message.user, Style::default().fg(user_color));
-                    
+
                     if content.is_empty() {
                         return vec![Spans::from(vec![header_date, header_user])];
                     }
@@ -181,20 +181,24 @@ fn draw_messages_panel(
                     let indent_width = header_date.content.width();
                     let indent = " ".repeat(indent_width);
 
-                    content.lines().enumerate().map(|(i, line)| {
-                        if i == 0 {
-                            Spans::from(vec![
-                                header_date.clone(),
-                                header_user.clone(),
-                                Span::styled(line, Style::default().fg(content_color)),
-                            ])
-                        } else {
-                            Spans::from(vec![
-                                Span::raw(indent.clone()),
-                                Span::styled(line, Style::default().fg(content_color)),
-                            ])
-                        }
-                    }).collect::<Vec<_>>()
+                    content
+                        .lines()
+                        .enumerate()
+                        .map(|(i, line)| {
+                            if i == 0 {
+                                Spans::from(vec![
+                                    header_date.clone(),
+                                    header_user.clone(),
+                                    Span::styled(line, Style::default().fg(content_color)),
+                                ])
+                            } else {
+                                Spans::from(vec![
+                                    Span::raw(indent.clone()),
+                                    Span::styled(line, Style::default().fg(content_color)),
+                                ])
+                            }
+                        })
+                        .collect::<Vec<_>>()
                 }
                 MessageType::Progress(state) => {
                     vec![Spans::from(add_progress_bar(chunk.width, state, theme))]

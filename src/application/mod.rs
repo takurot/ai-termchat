@@ -1407,49 +1407,65 @@ fn human_member_names(room: &Room) -> Vec<String> {
 fn help_text() -> String {
     let mut out = String::new();
     let sections = [
-        ("AI", vec![
-            ("/ai mode <mode>", "Change AI behaviour mode:"),
-            ("", "  clerk      Active assistant (auto-intervenes)"),
-            ("", "  listener   Passive observer (only responds to mentions)"),
-            ("", "  moderator  Focuses on decisions and conflicts"),
-            ("", "  operator   Executes skills on request"),
-            ("", "  companion  Casual conversational partner"),
-            ("/ai quiet <on|off>", "Mute/unmute AI responses"),
-            ("/ai freq <low|normal|high>", "Adjust AI intervention frequency"),
-        ]),
-        ("Summary", vec![
-            ("/summary", "Summarise the conversation"),
-            ("/todos", "List action items"),
-            ("/decisions", "List decisions made"),
-            ("/context", "Summarise context"),
-        ]),
-        ("Rooms", vec![
-            ("/room create @user [--ai <mode>]", "Create a room with peers"),
-            ("/room list", "List all rooms"),
-            ("/room switch <id|name>", "Switch active room"),
-        ]),
-        ("Peers", vec![
-            ("/peers", "List connected peers"),
-            ("/peer connect <host:port>", "Connect to a peer directly"),
-            ("/trust list", "List trusted peer fingerprints"),
-            ("/trust add <peer|fp>", "Trust a peer explicitly"),
-            ("/trust remove <peer|fp>", "Remove stored peer trust"),
-        ]),
-        ("Skills", vec![
-            ("/skills", "List available skills"),
-            ("/skill <name> [args]", "Run a skill manually"),
-            ("/run <id>", "Accept a skill proposal from AI"),
-            ("/cancel", "Cancel current AI task or skill"),
-        ]),
-        ("Avatar", vec![
-            ("/avatar set <target> <preset>", "Set avatar (target: self, @ops-ai)"),
-            ("/avatar list", "List available avatar presets"),
-            ("/avatar preview", "Preview your current avatar"),
-            ("/avatar mode <size>", "Set size: compact, normal, expressive"),
-        ]),
-        ("Files", vec![
-            ("/send <file>", "Send a file to peers in the room"),
-        ]),
+        (
+            "AI",
+            vec![
+                ("/ai mode <mode>", "Change AI behaviour mode:"),
+                ("", "  clerk      Active assistant (auto-intervenes)"),
+                ("", "  listener   Passive observer (only responds to mentions)"),
+                ("", "  moderator  Focuses on decisions and conflicts"),
+                ("", "  operator   Executes skills on request"),
+                ("", "  companion  Casual conversational partner"),
+                ("/ai quiet <on|off>", "Mute/unmute AI responses"),
+                ("/ai freq <low|normal|high>", "Adjust AI intervention frequency"),
+            ],
+        ),
+        (
+            "Summary",
+            vec![
+                ("/summary", "Summarise the conversation"),
+                ("/todos", "List action items"),
+                ("/decisions", "List decisions made"),
+                ("/context", "Summarise context"),
+            ],
+        ),
+        (
+            "Rooms",
+            vec![
+                ("/room create @user [--ai <mode>]", "Create a room with peers"),
+                ("/room list", "List all rooms"),
+                ("/room switch <id|name>", "Switch active room"),
+            ],
+        ),
+        (
+            "Peers",
+            vec![
+                ("/peers", "List connected peers"),
+                ("/peer connect <host:port>", "Connect to a peer directly"),
+                ("/trust list", "List trusted peer fingerprints"),
+                ("/trust add <peer|fp>", "Trust a peer explicitly"),
+                ("/trust remove <peer|fp>", "Remove stored peer trust"),
+            ],
+        ),
+        (
+            "Skills",
+            vec![
+                ("/skills", "List available skills"),
+                ("/skill <name> [args]", "Run a skill manually"),
+                ("/run <id>", "Accept a skill proposal from AI"),
+                ("/cancel", "Cancel current AI task or skill"),
+            ],
+        ),
+        (
+            "Avatar",
+            vec![
+                ("/avatar set <target> <preset>", "Set avatar (target: self, @ops-ai)"),
+                ("/avatar list", "List available avatar presets"),
+                ("/avatar preview", "Preview your current avatar"),
+                ("/avatar mode <size>", "Set size: compact, normal, expressive"),
+            ],
+        ),
+        ("Files", vec![("/send <file>", "Send a file to peers in the room")]),
     ];
 
     for (i, (title, commands)) in sections.into_iter().enumerate() {
