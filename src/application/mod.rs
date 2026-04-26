@@ -1,7 +1,8 @@
 use std::io::ErrorKind;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{Event as TermEvent, KeyCode, KeyEvent, KeyModifiers};
 use message_io::events::EventReceiver;
@@ -17,6 +18,7 @@ use crate::avatar::loader::AvatarManager;
 use crate::avatar::{AvatarSize, AvatarState};
 use crate::commands::ai_cmd::AiCommand;
 use crate::commands::avatar_cmd::AvatarCommand;
+use crate::commands::peer_cmd::{PeerCommand, TrustCommand};
 use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
 use crate::commands::skill_cmd::{CancelCommand, RunCommand, SkillCommand, SkillsCommand};
@@ -24,7 +26,7 @@ use crate::commands::summary_cmd::SummaryCommand;
 use crate::commands::{
     AppCommand, AvatarCommandKind, CommandManager, ParsedCommand, SummaryCommandKind,
 };
-use crate::config::Config;
+use crate::config::{Config, DefaultPermission};
 use crate::encoder::{self, Encoder};
 use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
 use crate::room::transcript::TranscriptEntry;
@@ -32,7 +34,7 @@ use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::state::{
     AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State,
-    Window,
+    Window, PeerReadiness,
 };
 use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
 use crate::skill::registry::{InvokeMode, RiskLevel};
@@ -45,6 +47,7 @@ pub enum Signal {
     AiResponse(AiPayload, bool),
     AiFailed(String),
     SkillDone(SkillResultPayload),
+    DiscoveryRetry,
     Close(Option<Error>),
 }
 
@@ -62,6 +65,8 @@ pub struct Application<'a> {
     avatar_manager: AvatarManager,
     test_mode: bool,
     local_server_port: Option<u16>,
+    config_file_path: Option<PathBuf>,
+    discovery_retries_remaining: usize,
 }
 
 impl<'a> Application<'a> {
@@ -106,8 +111,10 @@ impl<'a> Application<'a> {
         let commands = CommandManager::default()
             .with(SendFileCommand)
             .with(AiCommand)
+            .with(PeerCommand)
             .with(RoomCommand)
             .with(PeersCommand)
+            .with(TrustCommand)
             .with(SkillsCommand)
             .with(SkillCommand)
             .with(RunCommand)
@@ -147,6 +154,11 @@ impl<'a> Application<'a> {
             .map(|d| d.join("triadchat").join("avatars"))
             .unwrap_or_else(|| std::path::PathBuf::from("/tmp/triadchat-avatars"));
         let avatar_manager = AvatarManager::new(avatar_dir);
+        let config_file_path = if collect_terminal_events {
+            Config::config_file_path()
+        } else {
+            Some(Config::config_file_path_with_base(workspace.join(".triadchat-test-config")))
+        };
 
         Ok(Self {
             config,
@@ -162,6 +174,8 @@ impl<'a> Application<'a> {
             avatar_manager,
             test_mode: !collect_terminal_events,
             local_server_port: None,
+            config_file_path,
+            discovery_retries_remaining: 0,
         })
     }
 
@@ -189,7 +203,14 @@ impl<'a> Application<'a> {
         let (_, server_addr) = self.node.network().listen(Transport::FramedTcp, server_addr)?;
         self.local_server_port = Some(server_addr.port());
         self.node.network().listen(Transport::Udp, self.config.discovery_addr)?;
+        self.discovery_retries_remaining = 5;
+        self.state.add_system_info_message(format!(
+            "Listening on tcp://127.0.0.1:{} and discovering via {}",
+            server_addr.port(),
+            self.config.discovery_addr
+        ));
         self.announce_presence()?;
+        self.schedule_discovery_retry();
         Ok(())
     }
 
@@ -227,7 +248,10 @@ impl<'a> Application<'a> {
                 NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
                 NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
                     Some(net_message) => self.process_network_message(endpoint, net_message),
-                    None => return Err(anyhow::anyhow!("unknown message received")),
+                    None => self.state.add_system_warn_message(format!(
+                        "ignored incompatible message from {}",
+                        endpoint.addr()
+                    )),
                 },
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
@@ -241,6 +265,7 @@ impl<'a> Application<'a> {
                 Signal::AiResponse(payload, truncated) => self.process_ai_response(payload, truncated),
                 Signal::AiFailed(error) => self.process_ai_failure(error),
                 Signal::SkillDone(payload) => self.process_skill_done(payload),
+                Signal::DiscoveryRetry => self.handle_discovery_retry(),
                 Signal::Close(error) => {
                     self.node.stop();
                     return match error {
@@ -258,6 +283,9 @@ impl<'a> Application<'a> {
             NetMessage::HelloLan(user, server_port) => {
                 let server_addr = (endpoint.addr().ip(), server_port);
                 if user != self.config.user_name {
+                    if self.state.peer_names().iter().any(|known| known == &user) {
+                        return;
+                    }
                     let mut try_connect = || -> Result<()> {
                         let (user_endpoint, _) =
                             self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
@@ -271,8 +299,11 @@ impl<'a> Application<'a> {
                 }
             }
             NetMessage::HelloUser(user) => {
+                let already_ready = self.state.peer_is_ready(&user);
                 self.state.connected_user(endpoint, &user);
-                self.send_peer_info(endpoint);
+                if !already_ready {
+                    self.send_peer_info(endpoint);
+                }
                 self.righ_the_bell();
             }
             NetMessage::UserMessage(content) => {
@@ -337,22 +368,32 @@ impl<'a> Application<'a> {
             NetMessage::PeerInfo(peer) => {
                 self.state.connected_user(endpoint, &peer.user_name);
                 self.state.record_peer(endpoint, peer.clone());
-                let fingerprint = self
-                    .state
-                    .peer_fingerprint(endpoint)
-                    .expect("peer fingerprint should exist after record");
-                if !self.state.is_trusted_peer(&fingerprint) {
-                    self.state.trust_peer_fingerprint(fingerprint.clone());
-                    self.persist_trusted_peer_fingerprint(&fingerprint);
+                if let Some(fingerprint) = self.state.peer_fingerprint(endpoint) {
+                    let trust_state = if self.state.is_trusted_peer(&fingerprint) {
+                        "trusted"
+                    } else {
+                        "untrusted"
+                    };
                     self.state.add_system_info_message(format!(
-                        "trusted peer added: {} ({})",
-                        peer.user_name, fingerprint
+                        "peer ready: {} [{}] fp={}",
+                        peer.user_name,
+                        trust_state,
+                        short_fingerprint(&fingerprint)
                     ));
                 }
             }
             NetMessage::RoomCreate(room_id, member_ids) => {
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
-                    let room = self.state.accept_room(&room_id, &member_ids);
+                    let room = self.state.accept_room(&room_id, &member_ids, None);
+                    self.state.add_system_info_message(format!("joined room {}", room.id));
+                    self.node
+                        .network()
+                        .send(endpoint, self.encoder.encode(NetMessage::RoomJoin(room.id.clone())));
+                }
+            }
+            NetMessage::RoomCreateV2 { room_id, members, ai_mode } => {
+                if members.iter().any(|member_id| member_id == &self.config.user_name) {
+                    let room = self.state.accept_room(&room_id, &members, ai_mode);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
                     self.node
                         .network()
@@ -516,14 +557,20 @@ impl<'a> Application<'a> {
                     ));
                     return;
                 }
+                if let Some(not_ready_peer) =
+                    peers.iter().find(|peer| !self.state.peer_is_ready(peer))
+                {
+                    self.state.add_system_error_message(format!(
+                        "peer '{}' is not ready yet; still exchanging peer info.",
+                        not_ready_peer
+                    ));
+                    return;
+                }
 
-                let room = self.state.create_room(&peers, ai_mode);
+                let room = self.state.create_room(&peers, ai_mode.clone());
                 let member_ids =
                     room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
-                let message = self.encoder.encode(NetMessage::RoomCreate(
-                    room.id.clone(),
-                    member_ids.clone(),
-                ));
+                
                 let endpoints = self.state.all_user_endpoints();
                 // Filter endpoints to only send to those who are in the room
                 let target_endpoints = endpoints
@@ -532,9 +579,31 @@ impl<'a> Application<'a> {
                         self.state.user_name(e).is_some_and(|name| peers.contains(name))
                     })
                     .collect::<Vec<_>>();
-                
-                crate::util::send_all(self.node.network(), &target_endpoints, message)
-                    .report_if_err(&mut self.state);
+
+                // Broadcast RoomCreate (V1 or V2 depending on peer version)
+                let mut errors = Vec::new();
+                for &endpoint in &target_endpoints {
+                    let message = if self.peer_supports_room_create_v2(endpoint) {
+                        NetMessage::RoomCreateV2 {
+                            room_id: room.id.clone(),
+                            members: member_ids.clone(),
+                            ai_mode: ai_mode.clone(),
+                        }
+                    } else {
+                        NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
+                    };
+                    
+                    let encoded = self.encoder.encode(message);
+                    match self.node.network().send(endpoint, encoded) {
+                        message_io::network::SendStatus::Sent => (),
+                        status => {
+                            errors.push((endpoint, std::io::Error::other(format!("Send failed with status: {:?}", status))));
+                        }
+                    }
+                }
+                if !errors.is_empty() {
+                    Err(errors).report_if_err(&mut self.state);
+                }
 
                 self.state.add_system_info_message(format!("created room {}", room.id));
             }
@@ -571,6 +640,17 @@ impl<'a> Application<'a> {
                     self.state.add_system_info_message(self.peers_text());
                 }
             }
+            AppCommand::PeerConnect(target) => {
+                if let Err(error) = self.connect_peer_target(&target) {
+                    self.state.add_system_error_message(format!(
+                        "failed to connect to {}: {}",
+                        target, error
+                    ));
+                }
+            }
+            AppCommand::TrustList => self.state.add_system_info_message(self.trust_list_text()),
+            AppCommand::TrustAdd(target) => self.trust_peer_target(&target),
+            AppCommand::TrustRemove(target) => self.untrust_peer_target(&target),
             AppCommand::Skills => {
                 if self.state.skill_registry().skills().is_empty() {
                     self.state.add_system_info_message(
@@ -611,12 +691,50 @@ impl<'a> Application<'a> {
                     self.state.add_system_error_message(format!("unknown proposal id: {}", index));
                     return;
                 };
-                if !proposal.trusted {
-                    let source = proposal.source_peer.unwrap_or_else(|| "unknown peer".into());
+                let source = proposal.source_peer.clone();
+                let is_remote = source.is_some();
+                let permission = self.config.security.default_permission_policy();
+                let currently_trusted = if is_remote {
+                    proposal
+                        .source_fingerprint
+                        .as_deref()
+                        .map(|fingerprint| self.state.is_trusted_peer(fingerprint))
+                        .unwrap_or(false)
+                } else {
+                    proposal.trusted
+                };
+                if is_remote && matches!(permission, DefaultPermission::DenyRemoteExec) {
+                    self.state.add_system_error_message(
+                        "remote proposals are disabled by security.default_permission".into(),
+                    );
+                    return;
+                }
+                if is_remote && !currently_trusted {
+                    let source = source.unwrap_or_else(|| "unknown peer".into());
                     self.state.add_system_error_message(format!(
-                        "permission denied: proposal {} came from untrusted peer {}",
-                        index, source
+                        "permission denied: proposal {} came from untrusted peer {}. Use /trust add {} first.",
+                        index, source, source
                     ));
+                    return;
+                }
+                if is_remote && matches!(permission, DefaultPermission::ConfirmRequired) {
+                    let Some(meta) =
+                        self.state.skill_registry().find(&proposal.skill_name).cloned()
+                    else {
+                        self.state.add_system_error_message(format!(
+                            "unknown skill: {}",
+                            proposal.skill_name
+                        ));
+                        return;
+                    };
+                    let prompt = format!(
+                        "[{}] Execute remote proposal from {}? [y/n]",
+                        meta.name,
+                        source.unwrap_or_else(|| "unknown peer".into())
+                    );
+                    self.state
+                        .queue_skill_confirmation(PendingSkillExecution { meta, args: Vec::new() });
+                    self.state.add_system_info_message(prompt);
                     return;
                 }
                 self.queue_or_run_skill(proposal.skill_name, Vec::new());
@@ -708,7 +826,7 @@ impl<'a> Application<'a> {
         if self.test_mode {
             match self.runtime.block_on(ai_mediator.request(task, &transcript, &last_messages)) {
                 Ok((payload, truncated)) => {
-                    self.record_ai_response(payload, true, None, true, truncated)
+                    self.record_ai_response(payload, true, None, None, true, truncated)
                 }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
@@ -751,7 +869,7 @@ impl<'a> Application<'a> {
                 &last_messages,
             )) {
                 Ok((payload, truncated)) => {
-                    self.record_ai_response(payload, true, None, true, truncated)
+                    self.record_ai_response(payload, true, None, None, true, truncated)
                 }
                 Err(error) => self.process_ai_failure(error.to_string()),
             }
@@ -771,17 +889,17 @@ impl<'a> Application<'a> {
     }
 
     fn process_ai_response(&mut self, payload: AiPayload, truncated: bool) {
-        self.record_ai_response(payload, true, None, true, truncated);
+        self.record_ai_response(payload, true, None, None, true, truncated);
     }
 
     fn process_remote_ai_response(&mut self, endpoint: Endpoint, payload: AiPayload) {
         let source_peer = self.state.user_name(endpoint).cloned();
-        let trusted = self
-            .state
-            .peer_fingerprint(endpoint)
-            .map(|fingerprint| self.state.is_trusted_peer(&fingerprint))
+        let source_fingerprint = self.state.peer_fingerprint(endpoint);
+        let trusted = source_fingerprint
+            .as_deref()
+            .map(|fingerprint| self.state.is_trusted_peer(fingerprint))
             .unwrap_or(false);
-        self.record_ai_response(payload, false, source_peer, trusted, false);
+        self.record_ai_response(payload, false, source_peer, source_fingerprint, trusted, false);
     }
 
     fn record_ai_response(
@@ -789,6 +907,7 @@ impl<'a> Application<'a> {
         payload: AiPayload,
         broadcast: bool,
         source_peer: Option<String>,
+        source_fingerprint: Option<String>,
         trusted: bool,
         truncated: bool,
     ) {
@@ -799,7 +918,12 @@ impl<'a> Application<'a> {
         self.state.abort_handle = None;
         self.state.last_structured_output = payload.structured.clone();
         if let Some(structured) = payload.structured.as_ref() {
-            self.state.set_skill_proposals(&structured.skill_suggestions, source_peer, trusted);
+            self.state.set_skill_proposals_with_fingerprint(
+                &structured.skill_suggestions,
+                source_peer,
+                source_fingerprint,
+                trusted,
+            );
         } else {
             self.state.clear_skill_proposals();
         }
@@ -914,14 +1038,8 @@ impl<'a> Application<'a> {
     }
 
     pub fn connect_peer_for_test(&mut self, server_port: u16) -> Result<()> {
-        let server_addr = (Ipv4Addr::LOCALHOST, server_port);
-        let (endpoint, _) = self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
-        self.node.network().send(
-            endpoint,
-            self.encoder.encode(NetMessage::HelloUser(self.config.user_name.clone())),
-        );
-        self.send_peer_info(endpoint);
-        Ok(())
+        let server_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, server_port));
+        self.connect_peer_addr(server_addr)
     }
 
     pub fn righ_the_bell(&self) {
@@ -945,6 +1063,14 @@ impl<'a> Application<'a> {
         self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
     }
 
+    fn peer_supports_room_create_v2(&self, endpoint: Endpoint) -> bool {
+        self.state
+            .peers()
+            .get(&endpoint)
+            .map(|peer| version_supports_room_create_v2(&peer.node_version))
+            .unwrap_or(false)
+    }
+
     fn announce_presence(&mut self) -> Result<()> {
         let server_port = self
             .local_server_port
@@ -954,6 +1080,46 @@ impl<'a> Application<'a> {
         let message = NetMessage::HelloLan(self.config.user_name.clone(), server_port);
         self.node.network().send(discovery_endpoint, self.encoder.encode(message));
         Ok(())
+    }
+
+    fn schedule_discovery_retry(&self) {
+        self.node.signals().send_with_timer(Signal::DiscoveryRetry, Duration::from_millis(250));
+    }
+
+    fn handle_discovery_retry(&mut self) {
+        if !self.state.peer_names().is_empty() || self.discovery_retries_remaining == 0 {
+            if self.state.peer_names().is_empty() {
+                self.state.add_system_info_message(
+                    "No peers discovered yet. You can retry discovery or use /peer connect <host:port>."
+                        .into(),
+                );
+            }
+            return;
+        }
+        self.discovery_retries_remaining = self.discovery_retries_remaining.saturating_sub(1);
+        let _ = self.announce_presence();
+        if self.discovery_retries_remaining > 0 {
+            self.schedule_discovery_retry();
+        }
+    }
+
+    fn connect_peer_addr(&mut self, server_addr: SocketAddr) -> Result<()> {
+        let (endpoint, _) = self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
+        self.node.network().send(
+            endpoint,
+            self.encoder.encode(NetMessage::HelloUser(self.config.user_name.clone())),
+        );
+        self.send_peer_info(endpoint);
+        self.state.add_system_info_message(format!("connecting to peer at {}", server_addr));
+        Ok(())
+    }
+
+    fn connect_peer_target(&mut self, target: &str) -> Result<()> {
+        let server_addr = target
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no socket address resolved"))?;
+        self.connect_peer_addr(server_addr)
     }
 
     fn queue_or_run_skill(&mut self, name: String, args: Vec<String>) {
@@ -1049,22 +1215,85 @@ impl<'a> Application<'a> {
     }
 
     fn persist_trusted_peer_fingerprint(&self, fingerprint: &str) {
-        let Some(path) = crate::config::Config::config_file_path() else {
+        self.update_stored_config(|stored| {
+            if !stored.security.trusted_peers.iter().any(|known| known == fingerprint) {
+                stored.security.trusted_peers.push(fingerprint.to_string());
+            }
+        });
+    }
+
+    fn remove_trusted_peer_fingerprint(&self, fingerprint: &str) {
+        self.update_stored_config(|stored| {
+            stored.security.trusted_peers.retain(|known| known != fingerprint);
+        });
+    }
+
+    fn update_stored_config(&self, update: impl FnOnce(&mut Config)) {
+        let Some(path) = self.config_file_path.as_ref() else {
             return;
         };
-        let Ok(raw) = std::fs::read_to_string(&path) else {
-            return;
-        };
-        let Ok(mut stored) = toml::from_str::<Config>(&raw) else {
-            return;
-        };
-        if stored.security.trusted_peers.iter().any(|known| known == fingerprint) {
-            return;
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
-        stored.security.trusted_peers.push(fingerprint.to_string());
+        let mut stored = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| toml::from_str::<Config>(&raw).ok())
+            .unwrap_or_else(|| self.config.clone());
+        update(&mut stored);
         if let Ok(serialized) = toml::to_string(&stored) {
             let _ = std::fs::write(path, serialized);
         }
+    }
+
+    fn resolve_peer_or_fingerprint(&self, target: &str) -> Option<(String, String)> {
+        self.state
+            .peer_fingerprint_by_name(target)
+            .map(|fingerprint| (target.to_string(), fingerprint))
+            .or_else(|| {
+                self.state
+                    .trusted_peer_fingerprints()
+                    .into_iter()
+                    .find(|fingerprint| fingerprint == target)
+                    .map(|fingerprint| (target.to_string(), fingerprint))
+            })
+    }
+
+    fn trust_peer_target(&mut self, target: &str) {
+        let Some((label, fingerprint)) = self.resolve_peer_or_fingerprint(target) else {
+            self.state.add_system_error_message(format!(
+                "unknown peer or fingerprint '{}'. Use /peers or /trust list.",
+                target
+            ));
+            return;
+        };
+        self.state.trust_peer_fingerprint(fingerprint.clone());
+        self.state.set_skill_proposal_trust(&label, true);
+        self.state.set_skill_proposal_trust_by_fingerprint(&fingerprint, true);
+        self.persist_trusted_peer_fingerprint(&fingerprint);
+        self.state.add_system_info_message(format!(
+            "trusted peer {} ({})",
+            label,
+            short_fingerprint(&fingerprint)
+        ));
+    }
+
+    fn untrust_peer_target(&mut self, target: &str) {
+        let Some((label, fingerprint)) = self.resolve_peer_or_fingerprint(target) else {
+            self.state.add_system_error_message(format!(
+                "unknown peer or fingerprint '{}'. Use /trust list.",
+                target
+            ));
+            return;
+        };
+        self.state.untrust_peer_fingerprint(&fingerprint);
+        self.state.set_skill_proposal_trust(&label, false);
+        self.state.set_skill_proposal_trust_by_fingerprint(&fingerprint, false);
+        self.remove_trusted_peer_fingerprint(&fingerprint);
+        self.state.add_system_info_message(format!(
+            "removed trust for {} ({})",
+            label,
+            short_fingerprint(&fingerprint)
+        ));
     }
 
     fn room_list_text(&self) -> String {
@@ -1093,12 +1322,40 @@ impl<'a> Application<'a> {
 
         let mut lines = vec![format!("Connected peers ({}):", self.state.peer_names().len())];
         for peer in self.state.peer_names() {
-            let status = if active_members.iter().any(|member| member == &peer) {
+            let endpoint = self
+                .state
+                .peer_endpoint_by_name(&peer)
+                .expect("peer endpoint should exist for known peer name");
+            let room_status = if active_members.iter().any(|member| member == &peer) {
                 "in room"
             } else {
                 "available"
             };
-            lines.push(format!("  {peer}  [{status}]"));
+            let readiness = match self.state.peer_readiness(endpoint) {
+                PeerReadiness::Ready => "ready",
+                PeerReadiness::Connecting => "connecting",
+            };
+            let fingerprint = self
+                .state
+                .peer_fingerprint(endpoint)
+                .expect("peer fingerprint should exist for known peer");
+            let trust =
+                if self.state.is_trusted_peer(&fingerprint) { "trusted" } else { "untrusted" };
+            lines.push(format!(
+                "  {peer}  [{room_status}, {readiness}, {trust}]  fp={fingerprint}",
+            ));
+        }
+        lines.join("\n")
+    }
+
+    fn trust_list_text(&self) -> String {
+        let fingerprints = self.state.trusted_peer_fingerprints();
+        if fingerprints.is_empty() {
+            return "Trusted peers (0):".into();
+        }
+        let mut lines = vec![format!("Trusted peers ({}):", fingerprints.len())];
+        for fingerprint in fingerprints {
+            lines.push(format!("  {}", fingerprint));
         }
         lines.join("\n")
     }
@@ -1157,7 +1414,13 @@ fn help_text() -> String {
         "/room create @user [--ai <mode>]  Create a room with peers",
         "/room list                        List all rooms",
         "/room switch <room_id>            Switch active room",
+        "",
+        "Peers",
         "/peers                            List connected peers",
+        "/peer connect <host:port>         Connect to a peer directly",
+        "/trust list                       List trusted peer fingerprints",
+        "/trust add <peer|fingerprint>     Trust a peer explicitly",
+        "/trust remove <peer|fingerprint>  Remove stored peer trust",
         "",
         "Skills",
         "/skills               List available skills",
@@ -1202,6 +1465,25 @@ fn ai_frequency_label(frequency: &AiFrequency) -> &'static str {
         AiFrequency::Normal => "normal",
         AiFrequency::High => "high",
     }
+}
+
+fn short_fingerprint(fingerprint: &str) -> &str {
+    fingerprint.get(..12).unwrap_or(fingerprint)
+}
+
+fn version_supports_room_create_v2(version: &str) -> bool {
+    parse_semver_tuple(version).map(|parsed| parsed >= (0, 1, 1)).unwrap_or(false)
+}
+
+fn parse_semver_tuple(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
 }
 
 fn render_ai_payload(payload: &AiPayload) -> String {
