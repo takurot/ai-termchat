@@ -5,7 +5,8 @@ use crate::message::{NetMessage, Chunk};
 use crate::util::{Result, Reportable};
 use crate::encoder::{Encoder};
 
-use message_io::network::{NetworkController};
+use std::collections::HashSet;
+use message_io::network::{NetworkController, Endpoint};
 
 use std::path::{Path};
 use std::io::{Read};
@@ -34,6 +35,7 @@ pub struct SendFile {
     file_size: u64,
     progress_id: Option<usize>,
     encoder: Encoder,
+    failed_endpoints: HashSet<Endpoint>,
 }
 
 impl SendFile {
@@ -52,7 +54,14 @@ impl SendFile {
         let file_size = std::fs::metadata(file_path)?.len();
         let file = std::fs::File::open(file_path)?;
 
-        Ok(SendFile { file, file_name, file_size, progress_id: None, encoder: Encoder::new() })
+        Ok(SendFile {
+            file,
+            file_name,
+            file_size,
+            progress_id: None,
+            encoder: Encoder::new(),
+            failed_endpoints: HashSet::new(),
+        })
     }
 }
 
@@ -77,13 +86,26 @@ impl Action for SendFile {
             }
         };
 
-        state.progress_message_update(self.progress_id.unwrap(), bytes_read as u64);
+        if let Some(id) = self.progress_id {
+            state.progress_message_update(id, bytes_read as u64);
+        }
 
         let net_message = NetMessage::UserData(self.file_name.clone(), chunk);
         let message = self.encoder.encode(net_message);
-        for endpoint in state.all_user_endpoints() {
-            network.send(endpoint, message);
+
+        let endpoints = state
+            .all_user_endpoints()
+            .into_iter()
+            .filter(|e| !self.failed_endpoints.contains(e))
+            .collect::<Vec<_>>();
+
+        let result = crate::util::send_all(network, &endpoints, message);
+        if let Err(ref errors) = result {
+            for (endpoint, _) in errors {
+                self.failed_endpoints.insert(*endpoint);
+            }
         }
+        result.report_if_err(state);
 
         processing
     }

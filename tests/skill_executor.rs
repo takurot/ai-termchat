@@ -120,7 +120,7 @@ fn run_uses_pending_skill_proposals_from_ai_response() {
     let node = app.node_handler();
 
     node.signals().send(Signal::AiResponse(AiPayload {
-        text: "review-auth を実行すると良さそうです".into(),
+        text: "Using review-auth skill".into(),
         intent: AiIntent::SkillSuggest,
         structured: Some(StructuredOutput {
             todos: Vec::new(),
@@ -128,6 +128,7 @@ fn run_uses_pending_skill_proposals_from_ai_response() {
             skill_suggestions: vec!["review-auth".into()],
             raw_text: None,
         }),
+        truncated: false,
     }));
     app.process_next_event_for_test().unwrap();
 

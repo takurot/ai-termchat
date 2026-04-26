@@ -65,8 +65,10 @@ impl AiMediator {
                 mention_prompt(message, transcript, &self.language.ai_output)
             }
         };
-        let raw = self.sidecar.ask(&prompt).await?;
-        Ok(parse_ai_payload(&raw))
+        let (raw, truncated) = self.sidecar.ask(&prompt).await?;
+        let mut payload = parse_ai_payload(&raw);
+        payload.truncated = truncated;
+        Ok(payload)
     }
 
     pub async fn run_skill(&self, skill_name: &str, args: &[String]) -> Result<String> {

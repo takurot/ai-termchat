@@ -61,6 +61,7 @@ fn phase1_skill_commands_execute_without_polluting_transcript() {
             skill_suggestions: vec!["review-auth".into()],
             raw_text: None,
         }),
+        truncated: false,
     }));
     app.process_next_event_for_test().unwrap();
 

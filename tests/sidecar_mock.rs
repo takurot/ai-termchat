@@ -33,11 +33,12 @@ async fn sidecar_returns_stdout() {
     let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(1))
         .expect("adapter should be created");
 
-    let output = adapter
+    let (output, truncated) = adapter
         .ask(script.to_str().expect("script path should be utf-8"))
         .await
         .expect("sidecar should succeed");
     assert!(output.contains("mock summary"));
+    assert!(!truncated);
 }
 
 #[tokio::test]
@@ -136,8 +137,9 @@ async fn provider_invocation_uses_provider_specific_args() {
         };
         let adapter = SidecarAdapter::new(dir.path(), &config).expect("adapter should build");
 
-        let output = adapter.ask("hello world").await.expect("ask should succeed");
+        let (output, truncated) = adapter.ask("hello world").await.expect("ask should succeed");
         assert_eq!(output, "ok");
+        assert!(!truncated);
 
         let captured = fs::read_to_string(&args_file).expect("args should be captured");
         let captured_args = captured.lines().collect::<Vec<_>>();

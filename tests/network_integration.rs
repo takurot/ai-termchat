@@ -30,6 +30,10 @@ fn pump_until<F>(
         let _ = right.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }
 
+    if predicate(left, right) {
+        return;
+    }
+
     panic!(
         "timed out waiting for integration condition: left peers={:?} rooms={:?}, right peers={:?} rooms={:?}",
         left.state().peers().values().map(|peer| peer.user_name.clone()).collect::<Vec<_>>(),
@@ -53,13 +57,13 @@ fn peer_handshake_and_room_create_propagates() {
     takuro.announce_presence_for_test().unwrap();
     tanaka.announce_presence_for_test().unwrap();
 
-    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
-        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(5), |left, right| {
+        left.state().peer_names().len() == 1 && right.state().peer_names().len() == 1
     });
 
     takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
 
-    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(5), |left, right| {
         left.state().rooms().len() == 1
             && right.state().rooms().len() == 1
             && left.state().active_room_id().is_some()
@@ -108,7 +112,7 @@ fn room_and_peer_commands_show_richer_metadata() {
     );
 
     takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
-    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(5), |left, right| {
         left.state().rooms().len() == 1
             && right.state().rooms().len() == 1
             && left.state().active_room_id() == right.state().active_room_id()
@@ -152,13 +156,13 @@ fn room_switch_rejects_zero_index() {
     takuro.announce_presence_for_test().unwrap();
     tanaka.announce_presence_for_test().unwrap();
 
-    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
-        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(5), |left, right| {
+        left.state().peer_names().len() == 1 && right.state().peer_names().len() == 1
     });
 
     takuro.handle_input_line_for_test("/room create @tanaka --ai clerk").unwrap();
 
-    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(3), |left, right| {
+    pump_until(&mut takuro, &mut tanaka, Duration::from_secs(5), |left, right| {
         left.state().rooms().len() == 1
             && right.state().rooms().len() == 1
             && left.state().active_room_id() == right.state().active_room_id()

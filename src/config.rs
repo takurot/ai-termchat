@@ -24,8 +24,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            discovery_addr: "238.255.0.1:5877".parse().unwrap(),
-            tcp_server_port: "0".parse().unwrap(),
+            discovery_addr: "238.255.0.1:5877".parse().expect("valid default multicast address"),
+            tcp_server_port: 0,
             user_name: whoami::username(),
             terminal_bell: true,
             language: LanguageConfig::default(),
@@ -82,10 +82,14 @@ impl Config {
         let mut config = Config::from_config_file().unwrap_or_default();
 
         if let Some(discovery_addr) = matches.get_one::<String>("discovery") {
-            config.discovery_addr = discovery_addr.parse().unwrap();
+            if let Ok(addr) = discovery_addr.parse() {
+                config.discovery_addr = addr;
+            }
         }
         if let Some(tcp_server_port) = matches.get_one::<String>("tcp_server_port") {
-            config.tcp_server_port = tcp_server_port.parse().unwrap();
+            if let Ok(port) = tcp_server_port.parse() {
+                config.tcp_server_port = port;
+            }
         }
         if let Some(user_name) = matches.get_one::<String>("username") {
             config.user_name = user_name.to_owned();

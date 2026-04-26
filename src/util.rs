@@ -1,3 +1,32 @@
+use message_io::network::{NetworkController, Endpoint, SendStatus};
+
+// Broadcasts a message to all endpoints and collects any errors.
+pub fn send_all(
+    network: &NetworkController,
+    endpoints: &[Endpoint],
+    message: &[u8],
+) -> std::result::Result<(), Vec<(Endpoint, std::io::Error)>> {
+    let mut errors = Vec::new();
+    for &endpoint in endpoints {
+        match network.send(endpoint, message) {
+            SendStatus::Sent => (),
+            status => {
+                let error = std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Send failed with status: {:?}", status),
+                );
+                errors.push((endpoint, error));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 // split messages to fit the width of the ui panel
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub fn split_each(input: String, width: usize) -> Vec<String> {

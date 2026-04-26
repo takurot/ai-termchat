@@ -16,6 +16,7 @@ fn tokio_runtime_can_send_ai_signal_back_into_application_loop() {
             text: "summary from runtime".into(),
             intent: AiIntent::Summary,
             structured: Some(StructuredOutput::default()),
+            truncated: false,
         }));
     });
 

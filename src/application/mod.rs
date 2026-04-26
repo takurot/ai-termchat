@@ -441,12 +441,10 @@ impl<'a> Application<'a> {
                     format!("{} (me)", self.config.user_name),
                     MessageType::Text(input.clone()),
                 ));
-                for endpoint in self.state.all_user_endpoints() {
-                    self.node.network().send(
-                        endpoint,
-                        self.encoder.encode(NetMessage::UserMessage(input.clone())),
-                    );
-                }
+                let message = self.encoder.encode(NetMessage::UserMessage(input.clone()));
+                let endpoints = self.state.all_user_endpoints();
+                crate::util::send_all(self.node.network(), &endpoints, &message)
+                    .report_if_err(&mut self.state);
                 self.state.human_streak += 1;
                 let trigger = TriggerConfig::from_frequency_and_mode(
                     self.state.ai_frequency.clone(),
@@ -522,19 +520,22 @@ impl<'a> Application<'a> {
                 let room = self.state.create_room(&peers, ai_mode);
                 let member_ids =
                     room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
-                for endpoint in self.state.all_user_endpoints() {
-                    if let Some(user_name) = self.state.user_name(endpoint) {
-                        if peers.iter().any(|peer| peer == user_name) {
-                            self.node.network().send(
-                                endpoint,
-                                self.encoder.encode(NetMessage::RoomCreate(
-                                    room.id.clone(),
-                                    member_ids.clone(),
-                                )),
-                            );
-                        }
-                    }
-                }
+                let message = self.encoder.encode(NetMessage::RoomCreate(
+                    room.id.clone(),
+                    member_ids.clone(),
+                ));
+                let endpoints = self.state.all_user_endpoints();
+                // Filter endpoints to only send to those who are in the room
+                let target_endpoints = endpoints
+                    .into_iter()
+                    .filter(|&e| {
+                        self.state.user_name(e).map_or(false, |name| peers.contains(name))
+                    })
+                    .collect::<Vec<_>>();
+                
+                crate::util::send_all(self.node.network(), &target_endpoints, &message)
+                    .report_if_err(&mut self.state);
+
                 self.state.add_system_info_message(format!("created room {}", room.id));
             }
             AppCommand::RoomList => {
@@ -812,12 +813,16 @@ impl<'a> Application<'a> {
             "ai",
         );
         self.state.add_message_with_transcript(message, transcript_entry);
+        if payload.truncated {
+            self.state.add_system_warn_message(
+                "Warning: Conversation history was truncated due to length limits. AI accuracy may be affected.".into()
+            );
+        }
         if broadcast {
-            for endpoint in self.state.all_user_endpoints() {
-                self.node
-                    .network()
-                    .send(endpoint, self.encoder.encode(NetMessage::AiMessage(payload.clone())));
-            }
+            let message = self.encoder.encode(NetMessage::AiMessage(payload.clone()));
+            let endpoints = self.state.all_user_endpoints();
+            crate::util::send_all(self.node.network(), &endpoints, &message)
+                .report_if_err(&mut self.state);
         }
         self.righ_the_bell();
     }
@@ -858,9 +863,10 @@ impl<'a> Application<'a> {
         self.state.add_message_with_transcript(message, transcript_entry);
         if broadcast {
             let net_message = NetMessage::SkillResult(payload);
-            for endpoint in self.state.all_user_endpoints() {
-                self.node.network().send(endpoint, self.encoder.encode(net_message.clone()));
-            }
+            let message = self.encoder.encode(net_message);
+            let endpoints = self.state.all_user_endpoints();
+            crate::util::send_all(self.node.network(), &endpoints, &message)
+                .report_if_err(&mut self.state);
         }
     }
 

@@ -618,6 +618,9 @@ impl State {
     }
 
     pub fn progress_message_update(&mut self, index: usize, increment: u64) {
+        if index >= self.messages.len() {
+            return;
+        }
         match &mut self.messages[index].message_type {
             MessageType::Progress(state) => {
                 *state = match state {
@@ -633,7 +636,7 @@ impl State {
                     ProgressState::Completed => ProgressState::Completed,
                 };
             }
-            _ => panic!("Must be a Progress MessageType"),
+            _ => {}
         }
     }
 

@@ -16,11 +16,12 @@ pub fn parse_ai_payload(raw: &str) -> AiPayload {
     }
 
     match (intent, text) {
-        (Some(intent), Some(text)) => AiPayload { text, intent, structured },
+        (Some(intent), Some(text)) => AiPayload { text, intent, structured, truncated: false },
         _ => AiPayload {
             text: raw.trim().to_string(),
             intent: AiIntent::Clarify,
             structured: Some(StructuredOutput::raw(raw)),
+            truncated: false,
         },
     }
 }
