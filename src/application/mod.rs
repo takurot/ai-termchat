@@ -262,7 +262,9 @@ impl<'a> Application<'a> {
             NodeEvent::Signal(signal) => match signal {
                 Signal::Terminal(term_event) => self.process_terminal_event(term_event)?,
                 Signal::Action(action) => self.process_action(action),
-                Signal::AiResponse(payload, truncated) => self.process_ai_response(payload, truncated),
+                Signal::AiResponse(payload, truncated) => {
+                    self.process_ai_response(payload, truncated)
+                }
                 Signal::AiFailed(error) => self.process_ai_failure(error),
                 Signal::SkillDone(payload) => self.process_skill_done(payload),
                 Signal::DiscoveryRetry => self.handle_discovery_retry(),
@@ -570,14 +572,12 @@ impl<'a> Application<'a> {
                 let room = self.state.create_room(&peers, ai_mode.clone());
                 let member_ids =
                     room.members.iter().map(|member| member.id.clone()).collect::<Vec<_>>();
-                
+
                 let endpoints = self.state.all_user_endpoints();
                 // Filter endpoints to only send to those who are in the room
                 let target_endpoints = endpoints
                     .into_iter()
-                    .filter(|&e| {
-                        self.state.user_name(e).is_some_and(|name| peers.contains(name))
-                    })
+                    .filter(|&e| self.state.user_name(e).is_some_and(|name| peers.contains(name)))
                     .collect::<Vec<_>>();
 
                 // Broadcast RoomCreate (V1 or V2 depending on peer version)
@@ -592,12 +592,18 @@ impl<'a> Application<'a> {
                     } else {
                         NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
                     };
-                    
+
                     let encoded = self.encoder.encode(message);
                     match self.node.network().send(endpoint, encoded) {
                         message_io::network::SendStatus::Sent => (),
                         status => {
-                            errors.push((endpoint, std::io::Error::other(format!("Send failed with status: {:?}", status))));
+                            errors.push((
+                                endpoint,
+                                std::io::Error::other(format!(
+                                    "Send failed with status: {:?}",
+                                    status
+                                )),
+                            ));
                         }
                     }
                 }

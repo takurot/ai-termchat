@@ -11,8 +11,7 @@ pub fn send_all(
         match network.send(endpoint, message) {
             SendStatus::Sent => (),
             status => {
-                let error =
-                    std::io::Error::other(format!("Send failed with status: {:?}", status));
+                let error = std::io::Error::other(format!("Send failed with status: {:?}", status));
                 errors.push((endpoint, error));
             }
         }
