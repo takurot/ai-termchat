@@ -183,7 +183,7 @@ impl<'a> Application<'a> {
         let mut renderer =
             if self._terminal_events.is_some() { Some(Renderer::new(out)?) } else { None };
         if let Some(renderer) = renderer.as_mut() {
-            renderer.render(&self.state, self.config, &self.avatar_manager)?;
+            renderer.render(&mut self.state, self.config, &self.avatar_manager)?;
         }
 
         self.start_network()?;
@@ -193,7 +193,7 @@ impl<'a> Application<'a> {
                 return Ok(());
             }
             if let Some(renderer) = renderer.as_mut() {
-                renderer.render(&self.state, self.config, &self.avatar_manager)?;
+                renderer.render(&mut self.state, self.config, &self.avatar_manager)?;
             }
         }
     }
@@ -447,6 +447,7 @@ impl<'a> Application<'a> {
                     if !self.state.input().is_empty() || self.state.in_history_mode() {
                         self.state.input_history_prev();
                     } else {
+                        // In chronological flow, Up scrolls towards older messages (backwards)
                         self.state.messages_scroll(ScrollMovement::Up);
                     }
                 }
@@ -454,6 +455,7 @@ impl<'a> Application<'a> {
                     if self.state.in_history_mode() {
                         self.state.input_history_next();
                     } else {
+                        // In chronological flow, Down scrolls towards newer messages (forwards)
                         self.state.messages_scroll(ScrollMovement::Down);
                     }
                 }

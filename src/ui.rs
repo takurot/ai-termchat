@@ -28,7 +28,7 @@ use crate::util::split_each;
 
 pub fn draw(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
@@ -118,7 +118,7 @@ pub fn draw(
 
 fn draw_messages_panel(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
@@ -126,10 +126,11 @@ fn draw_messages_panel(
     let message_colors = &theme.message_colors;
     let ui_messages = messages(&language.ui);
 
+    state.update_chat_viewport(chunk.width, chunk.height);
+
     let messages = state
         .messages()
         .iter()
-        .rev()
         .flat_map(|message| {
             let color = if let Some(id) = state.users_id().get(&message.user) {
                 message_colors[id % message_colors.len()]
