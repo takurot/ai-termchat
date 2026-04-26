@@ -748,6 +748,7 @@ impl<'a> Application<'a> {
             AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::Help => {
+                self.state.messages_scroll(ScrollMovement::Start);
                 self.state.add_system_info_message(help_text());
             }
         }
@@ -1455,9 +1456,9 @@ fn help_text() -> String {
         out.push_str(&format!("\n【 {} 】\n", title));
         for (cmd, desc) in commands {
             if cmd.is_empty() {
-                out.push_str(&format!("      {}\n", desc));
+                out.push_str(&format!("    {}\n", desc));
             } else {
-                out.push_str(&format!("  {:<36} {}\n", cmd, desc));
+                out.push_str(&format!(" {:<28} {}\n", cmd, desc));
             }
         }
     }

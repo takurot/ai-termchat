@@ -182,9 +182,9 @@ fn draw_messages_panel_inner(
                     let header_date = Span::styled(date, Style::default().fg(theme.date_color));
                     let header_user = Span::styled(&message.user, Style::default().fg(user_color));
                     
-                    // Calculate indentation based on date and user name
+                    // Calculate indentation based on date only to align with username
                     use unicode_width::UnicodeWidthStr;
-                    let indent_width = header_date.content.width() + header_user.content.width();
+                    let indent_width = header_date.content.width();
                     let indent = " ".repeat(indent_width);
 
                     content.lines().enumerate().map(|(i, line)| {
