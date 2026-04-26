@@ -218,9 +218,12 @@ pub enum ScrollMovement {
     Up,
     Down,
     Start,
+    End,
 }
 
 impl State {
+    pub const AI_NAME: &'static str = "ops-ai ✦";
+
     pub fn messages(&self) -> &Vec<ChatMessage> {
         &self.messages
     }
@@ -251,6 +254,11 @@ impl State {
             ScrollMovement::Start => {
                 self.scroll_messages_view = 0;
                 self.auto_scroll = false;
+            }
+            ScrollMovement::End => {
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                self.scroll_messages_view = self.total_message_lines.saturating_sub(inner_height);
+                self.auto_scroll = true;
             }
         }
     }
@@ -288,34 +296,59 @@ impl State {
 
         match &message.message_type {
             MessageType::Text(content) => {
-                let header_width = date_width + user_width + 2;
-                let first_line_width = width.saturating_sub(header_width);
-                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
+                let header_width = date_width + user_width + 2; // ": "
+                let mut total_lines = 0;
+                for (i, line) in content.lines().enumerate() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let available_width = if i == 0 {
+                        width.saturating_sub(header_width)
+                    } else {
+                        width
+                    };
 
-                if first_line_width == 0 {
-                    header_width.div_ceil(width) + content_width.div_ceil(width)
-                } else {
-                    let mut lines = 1;
-                    if content_width > first_line_width {
-                        lines += (content_width - first_line_width).div_ceil(width);
+                    if available_width == 0 {
+                        total_lines += line_width.div_ceil(width) + 1;
+                        continue;
                     }
-                    lines
+
+                    total_lines += 1;
+                    if line_width > available_width {
+                        let remaining = line_width - available_width;
+                        total_lines += remaining.div_ceil(width);
+                    }
                 }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
             }
             MessageType::AiText(content) => {
-                let header_width = date_width + 10;
-                let first_line_width = width.saturating_sub(header_width);
-                let content_width = unicode_width::UnicodeWidthStr::width(content.as_str());
+                let ai_name_width = unicode_width::UnicodeWidthStr::width(Self::AI_NAME);
+                let header_width = date_width + ai_name_width + 2;
+                let mut total_lines = 0;
+                for (i, line) in content.lines().enumerate() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let available_width = if i == 0 {
+                        width.saturating_sub(header_width)
+                    } else {
+                        width
+                    };
 
-                if first_line_width == 0 {
-                    header_width.div_ceil(width) + content_width.div_ceil(width)
-                } else {
-                    let mut lines = 1;
-                    if content_width > first_line_width {
-                        lines += (content_width - first_line_width).div_ceil(width);
+                    if available_width == 0 {
+                        total_lines += line_width.div_ceil(width) + 1;
+                        continue;
                     }
-                    lines
+
+                    total_lines += 1;
+                    if line_width > available_width {
+                        let remaining = line_width - available_width;
+                        total_lines += remaining.div_ceil(width);
+                    }
                 }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
             }
             MessageType::System(content, _) => {
                 let first_line_header_width = date_width + user_width;
@@ -709,7 +742,7 @@ impl State {
             ScrollMovement::Down => {
                 self.room_list_scroll = self.room_list_scroll.saturating_add(1);
             }
-            ScrollMovement::Start => {}
+            ScrollMovement::Start | ScrollMovement::End => {}
         }
     }
 

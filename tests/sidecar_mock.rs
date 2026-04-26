@@ -30,6 +30,7 @@ async fn sidecar_returns_stdout() {
         "mock-claude.sh",
         "#!/bin/sh\ncat <<'EOF'\nINTENT: Summary\nTEXT: mock summary\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\nEOF\n",
     );
+    // Increase timeout to 3s to avoid flakiness in slow CI environments.
     let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(3))
         .expect("adapter should be created");
 
@@ -133,6 +134,7 @@ async fn provider_invocation_uses_provider_specific_args() {
             enabled: true,
             provider,
             command: Some(script.display().to_string()),
+            // Increase timeout to 3s to avoid flakiness in slow CI environments.
             timeout_secs: 3,
         };
         let adapter = SidecarAdapter::new(dir.path(), &config).expect("adapter should build");

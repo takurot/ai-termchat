@@ -43,6 +43,16 @@ pub fn draw(
     let upper_chunk = v_chunks[0];
 
     if should_show_side_panels(chunk.width) {
+        // ── Wide layout ────────────────────────────────────────────────────
+        //
+        //  ┌──────────┬──────────────────────┐
+        //  │  Peers   │        Chat          │
+        //  │──────────┤──────────────────────┤
+        //  │  Rooms   │       ops-ai         │
+        //  ├──────────┴──────────────────────┤
+        //  │              Input              │
+        //  └─────────────────────────────────┘
+        //
         // Horizontal: left column(18) | right column(min)
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -110,7 +120,6 @@ fn draw_messages_panel(
     let message_colors = &theme.message_colors;
     let ui_messages = messages(&language.ui);
 
-    // Synchronize viewport dimensions with State for auto-scroll and line estimation
     state.update_chat_viewport(chunk.width, chunk.height);
 
     let messages = state
@@ -145,7 +154,7 @@ fn draw_messages_panel(
                 }
                 MessageType::AiText(content) => vec![Spans::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
-                    Span::styled("ops-ai ✦", Style::default().fg(Color::LightCyan)),
+                    Span::styled(State::AI_NAME, Style::default().fg(Color::LightCyan)),
                     Span::styled(": ", Style::default().fg(Color::LightCyan)),
                     Span::styled(content, Style::default().fg(Color::LightCyan)),
                 ])],

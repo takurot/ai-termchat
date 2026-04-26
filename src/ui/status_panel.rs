@@ -14,7 +14,7 @@ use crate::ui::layout::truncate;
 /// Draws the ops-ai status panel below chat.
 pub fn draw_status_panel(
     frame: &mut Frame<impl Backend>,
-    state: &mut State,
+    state: &State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
 ) {

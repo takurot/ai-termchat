@@ -412,7 +412,10 @@ impl<'a> Application<'a> {
 
     fn process_terminal_event(&mut self, term_event: TermEvent) -> Result<()> {
         match term_event {
-            TermEvent::Mouse(_) | TermEvent::Resize(_, _) => {}
+            TermEvent::Mouse(_) => {}
+            TermEvent::Resize(width, height) => {
+                self.state.update_chat_viewport(width, height);
+            }
             TermEvent::Key(KeyEvent { code, modifiers, .. }) => match code {
                 KeyCode::Esc => {
                     self.node.signals().send_with_priority(Signal::Close(None));
@@ -436,7 +439,13 @@ impl<'a> Application<'a> {
                 KeyCode::Left => self.state.input_move_cursor(CursorMovement::Left),
                 KeyCode::Right => self.state.input_move_cursor(CursorMovement::Right),
                 KeyCode::Home => self.state.input_move_cursor(CursorMovement::Start),
-                KeyCode::End => self.state.input_move_cursor(CursorMovement::End),
+                KeyCode::End => {
+                    if !self.state.input().is_empty() {
+                        self.state.input_move_cursor(CursorMovement::End);
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::End);
+                    }
+                }
                 KeyCode::Up if modifiers.contains(KeyModifiers::ALT) => {
                     self.state.scroll_room_list(ScrollMovement::Up);
                 }
@@ -460,6 +469,7 @@ impl<'a> Application<'a> {
                     }
                 }
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
+                KeyCode::PageDown => self.state.messages_scroll(ScrollMovement::End),
                 _ => {}
             },
         }
