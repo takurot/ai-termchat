@@ -565,7 +565,7 @@ impl State {
                 }
             }
             ScrollMovement::Down => self.scroll_messages_view += 1,
-            ScrollMovement::Start => self.scroll_messages_view += 0,
+            ScrollMovement::Start => self.scroll_messages_view = 0,
         }
     }
 
