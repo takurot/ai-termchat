@@ -356,8 +356,7 @@ impl State {
 
             if self.auto_scroll {
                 let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
-                self.scroll_messages_view =
-                    self.total_message_lines.saturating_sub(inner_height);
+                self.scroll_messages_view = self.total_message_lines.saturating_sub(inner_height);
             }
         }
     }

@@ -62,11 +62,7 @@ pub fn draw(
             .split(h_chunks[1]);
 
         draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
-        draw_room_list_panel(
-            frame,
-            state,
-            left_chunks[1],
-        );
+        draw_room_list_panel(frame, state, left_chunks[1]);
 
         if !state.windows.is_empty() {
             let chat_chunks = Layout::default()

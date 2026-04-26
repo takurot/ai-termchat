@@ -69,15 +69,12 @@ pub fn build_room_lines(rooms: &[Room], active_id: Option<&str>, scroll: usize) 
 
 use crate::state::State;
 
-pub fn draw_room_list_panel(
-    frame: &mut Frame<impl Backend>,
-    state: &mut State,
-    chunk: Rect,
-) {
-    let lines: Vec<_> = build_room_lines(state.rooms(), state.active_room_id(), state.room_list_scroll())
-        .into_iter()
-        .map(|l| tui::text::Spans::from(Span::raw(l)))
-        .collect();
+pub fn draw_room_list_panel(frame: &mut Frame<impl Backend>, state: &mut State, chunk: Rect) {
+    let lines: Vec<_> =
+        build_room_lines(state.rooms(), state.active_room_id(), state.room_list_scroll())
+            .into_iter()
+            .map(|l| tui::text::Spans::from(Span::raw(l)))
+            .collect();
 
     let panel = Paragraph::new(lines).block(
         Block::default()
