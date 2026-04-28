@@ -300,11 +300,8 @@ impl State {
                 let mut total_lines = 0;
                 for (i, line) in content.lines().enumerate() {
                     let line_width = unicode_width::UnicodeWidthStr::width(line);
-                    let available_width = if i == 0 {
-                        width.saturating_sub(header_width)
-                    } else {
-                        width
-                    };
+                    let available_width =
+                        if i == 0 { width.saturating_sub(header_width) } else { width };
 
                     if available_width == 0 {
                         total_lines += line_width.div_ceil(width) + 1;
@@ -328,11 +325,8 @@ impl State {
                 let mut total_lines = 0;
                 for (i, line) in content.lines().enumerate() {
                     let line_width = unicode_width::UnicodeWidthStr::width(line);
-                    let available_width = if i == 0 {
-                        width.saturating_sub(header_width)
-                    } else {
-                        width
-                    };
+                    let available_width =
+                        if i == 0 { width.saturating_sub(header_width) } else { width };
 
                     if available_width == 0 {
                         total_lines += line_width.div_ceil(width) + 1;
