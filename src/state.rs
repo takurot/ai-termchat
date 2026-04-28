@@ -42,6 +42,34 @@ pub enum AiMode {
     Companion,
 }
 
+impl std::str::FromStr for AiMode {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "clerk" => Ok(Self::Clerk),
+            "listener" => Ok(Self::Listener),
+            "moderator" => Ok(Self::Moderator),
+            "operator" => Ok(Self::Operator),
+            "companion" => Ok(Self::Companion),
+            other => Err(anyhow::anyhow!("unknown ai mode: {other}")),
+        }
+    }
+}
+
+impl std::fmt::Display for AiMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = match self {
+            Self::Clerk => "clerk",
+            Self::Listener => "listener",
+            Self::Moderator => "moderator",
+            Self::Operator => "operator",
+            Self::Companion => "companion",
+        };
+        f.write_str(value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerReadiness {
     Connecting,
@@ -1014,6 +1042,30 @@ mod tests {
 
     fn submit(state: &mut State) -> Option<String> {
         state.reset_input()
+    }
+
+    #[test]
+    fn ai_mode_from_str_accepts_all_known_modes() {
+        assert!("clerk".parse::<AiMode>().is_ok());
+        assert!("listener".parse::<AiMode>().is_ok());
+        assert!("moderator".parse::<AiMode>().is_ok());
+        assert!("operator".parse::<AiMode>().is_ok());
+        assert!("companion".parse::<AiMode>().is_ok());
+    }
+
+    #[test]
+    fn ai_mode_display_round_trips_through_from_str() {
+        for mode in [
+            AiMode::Clerk,
+            AiMode::Listener,
+            AiMode::Moderator,
+            AiMode::Operator,
+            AiMode::Companion,
+        ] {
+            let rendered = mode.to_string();
+
+            assert_eq!(rendered.parse::<AiMode>().expect("display value should parse"), mode);
+        }
     }
 
     // --- reset_input pushes to history ---

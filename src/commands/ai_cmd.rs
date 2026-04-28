@@ -13,7 +13,11 @@ impl Command for AiCommand {
         let subcommand = params.first().map(String::as_str).unwrap_or("help");
         match subcommand {
             "mode" => {
-                let mode = parse_mode(params.get(1).map(String::as_str).unwrap_or("clerk"))?;
+                let mode = params
+                    .get(1)
+                    .map(String::as_str)
+                    .unwrap_or("clerk")
+                    .parse::<AiMode>()?;
                 Ok(ParsedCommand::App(AppCommand::SetAiMode(mode)))
             }
             "quiet" => {
@@ -36,17 +40,6 @@ impl Command for AiCommand {
     }
 }
 
-fn parse_mode(value: &str) -> Result<AiMode> {
-    match value {
-        "clerk" => Ok(AiMode::Clerk),
-        "listener" => Ok(AiMode::Listener),
-        "moderator" => Ok(AiMode::Moderator),
-        "operator" => Ok(AiMode::Operator),
-        "companion" => Ok(AiMode::Companion),
-        other => Err(anyhow::anyhow!("unknown ai mode: {other}")),
-    }
-}
-
 fn parse_frequency(value: &str) -> Result<AiFrequency> {
     match value {
         "low" => Ok(AiFrequency::Low),
@@ -62,22 +55,17 @@ mod tests {
     use crate::commands::Command;
 
     #[test]
-    fn parse_mode_companion_returns_companion() {
-        assert_eq!(parse_mode("companion").unwrap(), AiMode::Companion);
+    fn parse_params_companion_mode_returns_companion() {
+        let parsed = AiCommand
+            .parse_params(vec!["mode".into(), "companion".into()])
+            .expect("companion is a valid AI mode");
+
+        assert!(matches!(parsed, ParsedCommand::App(AppCommand::SetAiMode(AiMode::Companion))));
     }
 
     #[test]
-    fn parse_mode_unknown_returns_error() {
-        assert!(parse_mode("unknown_mode").is_err());
-    }
-
-    #[test]
-    fn parse_mode_all_known_modes() {
-        assert!(parse_mode("clerk").is_ok());
-        assert!(parse_mode("listener").is_ok());
-        assert!(parse_mode("moderator").is_ok());
-        assert!(parse_mode("operator").is_ok());
-        assert!(parse_mode("companion").is_ok());
+    fn parse_params_unknown_mode_returns_error() {
+        assert!(AiCommand.parse_params(vec!["mode".into(), "unknown_mode".into()]).is_err());
     }
 
     #[test]
