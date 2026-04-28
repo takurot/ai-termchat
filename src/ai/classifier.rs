@@ -20,10 +20,6 @@ impl MessageClass {
     }
 }
 
-pub fn classify_message(input: &str) -> MessageClass {
-    MessageClass::classify(input)
-}
-
 pub fn contains_decision_marker(input: &str) -> bool {
     let normalized = input.to_lowercase();
     normalized.contains("決定")

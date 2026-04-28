@@ -42,6 +42,21 @@ pub enum AiMode {
     Companion,
 }
 
+impl std::str::FromStr for AiMode {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "clerk" => Ok(Self::Clerk),
+            "listener" => Ok(Self::Listener),
+            "moderator" => Ok(Self::Moderator),
+            "operator" => Ok(Self::Operator),
+            "companion" => Ok(Self::Companion),
+            other => Err(anyhow::anyhow!("unknown ai mode: {other}")),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerReadiness {
     Connecting,

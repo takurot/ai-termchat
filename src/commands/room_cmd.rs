@@ -26,7 +26,7 @@ impl Command for RoomCommand {
                             let value = params
                                 .get(index + 1)
                                 .ok_or_else(|| anyhow::anyhow!("missing value for --ai"))?;
-                            ai_mode = Some(parse_mode(value)?);
+                            ai_mode = Some(value.parse::<AiMode>()?);
                             index += 1;
                         }
                         other => return Err(anyhow::anyhow!("unknown room argument: {other}")),
@@ -64,12 +64,20 @@ impl Command for PeersCommand {
     }
 }
 
-fn parse_mode(value: &str) -> Result<AiMode> {
-    match value {
-        "clerk" => Ok(AiMode::Clerk),
-        "listener" => Ok(AiMode::Listener),
-        "moderator" => Ok(AiMode::Moderator),
-        "operator" => Ok(AiMode::Operator),
-        other => Err(anyhow::anyhow!("unknown ai mode: {other}")),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::{Command, ParsedCommand};
+
+    #[test]
+    fn room_create_accepts_companion_ai_mode() {
+        let parsed = RoomCommand
+            .parse_params(vec!["create".into(), "@user".into(), "--ai".into(), "companion".into()])
+            .expect("companion is a valid AI mode");
+
+        assert!(matches!(
+            parsed,
+            ParsedCommand::App(AppCommand::RoomCreate { ai_mode: Some(AiMode::Companion), .. })
+        ));
     }
 }
