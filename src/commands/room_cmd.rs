@@ -80,4 +80,16 @@ mod tests {
             ParsedCommand::App(AppCommand::RoomCreate { ai_mode: Some(AiMode::Companion), .. })
         ));
     }
+
+    #[test]
+    fn room_create_unknown_ai_mode_returns_error() {
+        let result = RoomCommand.parse_params(vec![
+            "create".into(),
+            "@user".into(),
+            "--ai".into(),
+            "unknown_mode".into(),
+        ]);
+
+        assert!(result.is_err());
+    }
 }

@@ -540,10 +540,8 @@ impl<'a> Application<'a> {
             },
             AppCommand::SetAiMode(mode) => {
                 self.state.ai_mode = mode;
-                self.state.add_system_info_message(format!(
-                    "AI mode set to {}",
-                    ai_mode_label(&self.state.ai_mode)
-                ));
+                self.state
+                    .add_system_info_message(format!("AI mode set to {}", self.state.ai_mode));
             }
             AppCommand::SetAiQuiet(enabled) => {
                 self.state.ai_mode = if enabled { AiMode::Listener } else { AiMode::Clerk };
@@ -1395,7 +1393,7 @@ fn describe_room(room: &Room) -> String {
         "{} [{}] — AI: {}",
         room.id,
         human_member_names(room).join(", "),
-        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+        room.ai_mode.as_ref().map(AiMode::to_string).unwrap_or_else(|| "off".to_string())
     )
 }
 
@@ -1404,7 +1402,7 @@ fn describe_room_list_entry(room: &Room) -> String {
         "{} [{}] mode: {}",
         room.id,
         human_member_names(room).join(", "),
-        room.ai_mode.as_ref().map(ai_mode_label).unwrap_or("off")
+        room.ai_mode.as_ref().map(AiMode::to_string).unwrap_or_else(|| "off".to_string())
     )
 }
 
@@ -1502,16 +1500,6 @@ impl Drop for Application<'_> {
             handle.abort();
         }
         self.node.stop();
-    }
-}
-
-fn ai_mode_label(mode: &AiMode) -> &'static str {
-    match mode {
-        AiMode::Clerk => "clerk",
-        AiMode::Listener => "listener",
-        AiMode::Moderator => "moderator",
-        AiMode::Operator => "operator",
-        AiMode::Companion => "companion",
     }
 }
 

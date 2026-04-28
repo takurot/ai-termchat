@@ -69,15 +69,6 @@ mod tests {
     }
 
     #[test]
-    fn ai_mode_from_str_accepts_all_known_modes() {
-        assert!("clerk".parse::<AiMode>().is_ok());
-        assert!("listener".parse::<AiMode>().is_ok());
-        assert!("moderator".parse::<AiMode>().is_ok());
-        assert!("operator".parse::<AiMode>().is_ok());
-        assert!("companion".parse::<AiMode>().is_ok());
-    }
-
-    #[test]
     fn parse_params_error_describes_available_modes() {
         let error = AiCommand
             .parse_params(vec!["wat".into()])
