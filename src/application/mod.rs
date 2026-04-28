@@ -183,7 +183,7 @@ impl<'a> Application<'a> {
         let mut renderer =
             if self._terminal_events.is_some() { Some(Renderer::new(out)?) } else { None };
         if let Some(renderer) = renderer.as_mut() {
-            renderer.render(&self.state, self.config, &self.avatar_manager)?;
+            renderer.render(&mut self.state, self.config, &self.avatar_manager)?;
         }
 
         self.start_network()?;
@@ -193,7 +193,7 @@ impl<'a> Application<'a> {
                 return Ok(());
             }
             if let Some(renderer) = renderer.as_mut() {
-                renderer.render(&self.state, self.config, &self.avatar_manager)?;
+                renderer.render(&mut self.state, self.config, &self.avatar_manager)?;
             }
         }
     }
@@ -412,7 +412,10 @@ impl<'a> Application<'a> {
 
     fn process_terminal_event(&mut self, term_event: TermEvent) -> Result<()> {
         match term_event {
-            TermEvent::Mouse(_) | TermEvent::Resize(_, _) => {}
+            TermEvent::Mouse(_) => {}
+            TermEvent::Resize(width, height) => {
+                self.state.update_chat_viewport(width, height);
+            }
             TermEvent::Key(KeyEvent { code, modifiers, .. }) => match code {
                 KeyCode::Esc => {
                     self.node.signals().send_with_priority(Signal::Close(None));
@@ -436,7 +439,13 @@ impl<'a> Application<'a> {
                 KeyCode::Left => self.state.input_move_cursor(CursorMovement::Left),
                 KeyCode::Right => self.state.input_move_cursor(CursorMovement::Right),
                 KeyCode::Home => self.state.input_move_cursor(CursorMovement::Start),
-                KeyCode::End => self.state.input_move_cursor(CursorMovement::End),
+                KeyCode::End => {
+                    if !self.state.input().is_empty() {
+                        self.state.input_move_cursor(CursorMovement::End);
+                    } else {
+                        self.state.messages_scroll(ScrollMovement::End);
+                    }
+                }
                 KeyCode::Up if modifiers.contains(KeyModifiers::ALT) => {
                     self.state.scroll_room_list(ScrollMovement::Up);
                 }
@@ -447,6 +456,7 @@ impl<'a> Application<'a> {
                     if !self.state.input().is_empty() || self.state.in_history_mode() {
                         self.state.input_history_prev();
                     } else {
+                        // In chronological flow, Up scrolls towards older messages (backwards)
                         self.state.messages_scroll(ScrollMovement::Up);
                     }
                 }
@@ -454,10 +464,12 @@ impl<'a> Application<'a> {
                     if self.state.in_history_mode() {
                         self.state.input_history_next();
                     } else {
+                        // In chronological flow, Down scrolls towards newer messages (forwards)
                         self.state.messages_scroll(ScrollMovement::Down);
                     }
                 }
                 KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
+                KeyCode::PageDown => self.state.messages_scroll(ScrollMovement::End),
                 _ => {}
             },
         }

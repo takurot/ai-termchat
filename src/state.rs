@@ -156,6 +156,10 @@ pub struct State {
     /// Global avatar size hint.
     pub avatar_size: AvatarSize,
     room_list_scroll: usize,
+    total_message_lines: usize,
+    chat_panel_width: u16,
+    chat_panel_height: u16,
+    auto_scroll: bool,
 }
 
 impl Default for State {
@@ -195,6 +199,10 @@ impl Default for State {
             ai_avatar: "ai_default".into(),
             avatar_size: AvatarSize::Normal,
             room_list_scroll: 0,
+            total_message_lines: 0,
+            chat_panel_width: 0,
+            chat_panel_height: 0,
+            auto_scroll: true,
         }
     }
 }
@@ -210,15 +218,174 @@ pub enum ScrollMovement {
     Up,
     Down,
     Start,
+    End,
 }
 
 impl State {
+    pub const AI_NAME: &'static str = "ops-ai ✦";
+
     pub fn messages(&self) -> &Vec<ChatMessage> {
         &self.messages
     }
 
     pub fn scroll_messages_view(&self) -> usize {
         self.scroll_messages_view
+    }
+
+    pub fn messages_scroll(&mut self, movement: ScrollMovement) {
+        match movement {
+            ScrollMovement::Up => {
+                if self.scroll_messages_view > 0 {
+                    self.scroll_messages_view -= 1;
+                }
+                // If user scrolls up, disable auto-scroll
+                self.auto_scroll = false;
+            }
+            ScrollMovement::Down => {
+                self.scroll_messages_view += 1;
+                // Check if we reached the bottom to re-enable auto-scroll
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                let max_scroll = self.total_message_lines.saturating_sub(inner_height);
+                if self.scroll_messages_view >= max_scroll {
+                    self.auto_scroll = true;
+                    self.scroll_messages_view = max_scroll;
+                }
+            }
+            ScrollMovement::Start => {
+                self.scroll_messages_view = 0;
+                self.auto_scroll = false;
+            }
+            ScrollMovement::End => {
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                self.scroll_messages_view = self.total_message_lines.saturating_sub(inner_height);
+                self.auto_scroll = true;
+            }
+        }
+    }
+
+    pub fn update_chat_viewport(&mut self, width: u16, height: u16) {
+        let changed = self.chat_panel_width != width || self.chat_panel_height != height;
+        if changed {
+            self.chat_panel_width = width;
+            self.chat_panel_height = height;
+            self.recalculate_total_lines();
+        }
+    }
+
+    fn recalculate_total_lines(&mut self) {
+        if self.chat_panel_width < 4 {
+            return;
+        }
+
+        let inner_width = self.chat_panel_width.saturating_sub(2);
+        let mut total_lines = 0;
+        for message in &self.messages {
+            total_lines += self.estimate_lines(message, inner_width as usize);
+        }
+        self.total_message_lines = total_lines;
+
+        if self.auto_scroll {
+            let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+            self.scroll_messages_view = total_lines.saturating_sub(inner_height);
+        }
+    }
+
+    fn estimate_lines(&self, message: &ChatMessage, width: usize) -> usize {
+        let date_width = 9; // "HH:MM:SS "
+        let user_width = unicode_width::UnicodeWidthStr::width(message.user.as_str());
+
+        match &message.message_type {
+            MessageType::Text(content) => {
+                let header_width = date_width + user_width + 2; // ": "
+                let mut total_lines = 0;
+                for (i, line) in content.lines().enumerate() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let available_width =
+                        if i == 0 { width.saturating_sub(header_width) } else { width };
+
+                    if available_width == 0 {
+                        total_lines += line_width.div_ceil(width) + 1;
+                        continue;
+                    }
+
+                    total_lines += 1;
+                    if line_width > available_width {
+                        let remaining = line_width - available_width;
+                        total_lines += remaining.div_ceil(width);
+                    }
+                }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
+            }
+            MessageType::AiText(content) => {
+                let ai_name_width = unicode_width::UnicodeWidthStr::width(Self::AI_NAME);
+                let header_width = date_width + ai_name_width + 2;
+                let mut total_lines = 0;
+                for (i, line) in content.lines().enumerate() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let available_width =
+                        if i == 0 { width.saturating_sub(header_width) } else { width };
+
+                    if available_width == 0 {
+                        total_lines += line_width.div_ceil(width) + 1;
+                        continue;
+                    }
+
+                    total_lines += 1;
+                    if line_width > available_width {
+                        let remaining = line_width - available_width;
+                        total_lines += remaining.div_ceil(width);
+                    }
+                }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
+            }
+            MessageType::System(content, _) => {
+                let first_line_header_width = date_width + user_width;
+                let mut total_lines = 0;
+                for line in content.lines() {
+                    let line_width = unicode_width::UnicodeWidthStr::width(line);
+                    let first_chunk_width = width.saturating_sub(first_line_header_width);
+                    total_lines += 1;
+                    if first_chunk_width == 0 {
+                        total_lines += line_width.div_ceil(width);
+                        continue;
+                    }
+                    if line_width > first_chunk_width {
+                        let remaining = line_width - first_chunk_width;
+                        let indent_width = date_width;
+                        let wrap_width = width.saturating_sub(indent_width);
+                        total_lines += if wrap_width > 0 {
+                            remaining.div_ceil(wrap_width)
+                        } else {
+                            remaining.div_ceil(width)
+                        };
+                    }
+                }
+                if content.is_empty() {
+                    total_lines = 1;
+                }
+                total_lines
+            }
+            _ => 1,
+        }
+    }
+
+    fn on_message_added(&mut self) {
+        if self.chat_panel_width >= 4 {
+            let inner_width = self.chat_panel_width.saturating_sub(2);
+            let message = self.messages.last().expect("message just added");
+            self.total_message_lines += self.estimate_lines(message, inner_width as usize);
+
+            if self.auto_scroll {
+                let inner_height = self.chat_panel_height.saturating_sub(2) as usize;
+                self.scroll_messages_view = self.total_message_lines.saturating_sub(inner_height);
+            }
+        }
     }
 
     pub fn input(&self) -> &[char] {
@@ -557,18 +724,6 @@ impl State {
         }
     }
 
-    pub fn messages_scroll(&mut self, movement: ScrollMovement) {
-        match movement {
-            ScrollMovement::Up => {
-                if self.scroll_messages_view > 0 {
-                    self.scroll_messages_view -= 1;
-                }
-            }
-            ScrollMovement::Down => self.scroll_messages_view += 1,
-            ScrollMovement::Start => self.scroll_messages_view = 0,
-        }
-    }
-
     pub fn room_list_scroll(&self) -> usize {
         self.room_list_scroll
     }
@@ -581,7 +736,7 @@ impl State {
             ScrollMovement::Down => {
                 self.room_list_scroll = self.room_list_scroll.saturating_add(1);
             }
-            ScrollMovement::Start => {}
+            ScrollMovement::Start | ScrollMovement::End => {}
         }
     }
 
@@ -656,6 +811,7 @@ impl State {
         let entry = self.default_transcript_entry(&message);
         self.write_transcript_entry(entry);
         self.messages.push(message);
+        self.on_message_added();
     }
 
     pub fn add_message_with_transcript(
@@ -665,11 +821,13 @@ impl State {
     ) {
         self.write_transcript_entry(transcript_entry);
         self.messages.push(message);
+        self.on_message_added();
     }
 
     pub fn add_ai_message(&mut self, payload: AiPayload) {
         self.last_structured_output = payload.structured.clone();
         self.messages.push(ChatMessage::new("ops-ai".into(), MessageType::AiText(payload.text)));
+        self.on_message_added();
     }
 
     pub fn add_system_warn_message(&mut self, content: String) {
@@ -677,6 +835,7 @@ impl State {
             "triadchat: ".into(),
             MessageType::System(content, SystemMessageType::Warning),
         ));
+        self.on_message_added();
     }
 
     pub fn add_system_info_message(&mut self, content: String) {
@@ -684,6 +843,7 @@ impl State {
             "triadchat: ".into(),
             MessageType::System(content, SystemMessageType::Info),
         ));
+        self.on_message_added();
     }
 
     pub fn add_system_error_message(&mut self, content: String) {
@@ -691,6 +851,7 @@ impl State {
             "triadchat: ".into(),
             MessageType::System(content, SystemMessageType::Error),
         ));
+        self.on_message_added();
     }
 
     pub fn add_progress_message(&mut self, file_name: &str, total: u64) -> usize {
@@ -698,6 +859,7 @@ impl State {
             format!("Sending '{}'", file_name),
             MessageType::Progress(ProgressState::Started(total)),
         ));
+        self.on_message_added();
         self.messages.len() - 1
     }
 

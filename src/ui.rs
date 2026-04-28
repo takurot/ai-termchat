@@ -28,7 +28,7 @@ use crate::util::split_each;
 
 pub fn draw(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
@@ -72,13 +72,7 @@ pub fn draw(
             .split(h_chunks[1]);
 
         draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
-        draw_room_list_panel(
-            frame,
-            state.rooms(),
-            state.active_room_id(),
-            state.room_list_scroll(),
-            left_chunks[1],
-        );
+        draw_room_list_panel(frame, state, left_chunks[1]);
 
         if !state.windows.is_empty() {
             let chat_chunks = Layout::default()
@@ -118,7 +112,7 @@ pub fn draw(
 
 fn draw_messages_panel(
     frame: &mut Frame<impl Backend>,
-    state: &State,
+    state: &mut State,
     chunk: Rect,
     theme: &Theme,
     language: &LanguageConfig,
@@ -126,10 +120,11 @@ fn draw_messages_panel(
     let message_colors = &theme.message_colors;
     let ui_messages = messages(&language.ui);
 
+    state.update_chat_viewport(chunk.width, chunk.height);
+
     let messages = state
         .messages()
         .iter()
-        .rev()
         .flat_map(|message| {
             let color = if let Some(id) = state.users_id().get(&message.user) {
                 message_colors[id % message_colors.len()]
@@ -159,7 +154,7 @@ fn draw_messages_panel(
                 }
                 MessageType::AiText(content) => vec![Spans::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
-                    Span::styled("ops-ai ✦", Style::default().fg(Color::LightCyan)),
+                    Span::styled(State::AI_NAME, Style::default().fg(Color::LightCyan)),
                     Span::styled(": ", Style::default().fg(Color::LightCyan)),
                     Span::styled(content, Style::default().fg(Color::LightCyan)),
                 ])],

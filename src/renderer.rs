@@ -26,7 +26,7 @@ impl<W: Write> Renderer<W> {
 
     pub fn render(
         &mut self,
-        state: &State,
+        state: &mut State,
         config: &Config,
         avatar_manager: &AvatarManager,
     ) -> Result<()> {
