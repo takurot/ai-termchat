@@ -6,10 +6,10 @@ pub fn left_right_constraints() -> Vec<Constraint> {
     vec![Constraint::Length(18), Constraint::Min(0)]
 }
 
-/// Vertical split for the right column: [chat(min), status(11)].
+/// Vertical split for the right column: [chat(min), status(8)].
 /// ops-ai panel sits below chat at full right-column width.
 pub fn right_column_constraints() -> Vec<Constraint> {
-    vec![Constraint::Min(0), Constraint::Length(11)]
+    vec![Constraint::Min(0), Constraint::Length(8)]
 }
 
 /// Returns `true` when the terminal is wide enough to show the peers side panel.

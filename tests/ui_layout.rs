@@ -38,10 +38,10 @@ fn chat_uses_min_constraint() {
 }
 
 #[test]
-fn status_panel_height_is_11() {
+fn status_panel_height_is_8() {
     use tui::layout::Constraint;
     let constraints = right_column_constraints();
-    assert_eq!(constraints[1], Constraint::Length(11));
+    assert_eq!(constraints[1], Constraint::Length(8));
 }
 
 // ─── Side panel visibility ────────────────────────────────────────────────────
