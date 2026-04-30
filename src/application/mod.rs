@@ -1064,6 +1064,18 @@ impl<'a> Application<'a> {
         self.connect_peer_addr(server_addr)
     }
 
+    pub fn inject_remote_ai_response_for_test(&mut self, source_peer: &str, payload: AiPayload) {
+        let source_fingerprint = Some(format!("fp:{}:test", source_peer));
+        self.record_ai_response(
+            payload,
+            false,
+            Some(source_peer.to_string()),
+            source_fingerprint,
+            false,
+            false,
+        );
+    }
+
     pub fn righ_the_bell(&self) {
         if self.config.terminal_bell {
             print!("\x07");

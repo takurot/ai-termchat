@@ -175,52 +175,17 @@ fn cancel_with_pending_confirmation_but_no_running_task_cancels_confirmation() {
 
 #[test]
 fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
-    use std::time::{Duration, Instant};
-
-    use triadchat::message::NetMessage;
-
     let workspace = create_skill_workspace();
     let script = write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'noop'\n");
 
-    let discovery_port = 50000 + (rand::random::<u16>() % 1000);
-    let takuro_config = Config {
+    let config = Config {
         user_name: "takuro".into(),
-        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
-        terminal_bell: false,
         ai: AiConfig { command: Some(script.display().to_string()), ..Default::default() },
         ..Default::default()
     };
 
-    let tanaka_config = Config {
-        user_name: "tanaka".into(),
-        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
-        terminal_bell: false,
-        ai: AiConfig { command: Some(script.display().to_string()), ..Default::default() },
-        ..Default::default()
-    };
+    let mut takuro = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
 
-    let mut takuro =
-        Application::new_for_test_in_workspace(&takuro_config, workspace.path()).unwrap();
-    let mut tanaka =
-        Application::new_for_test_in_workspace(&tanaka_config, workspace.path()).unwrap();
-
-    takuro.start_network_for_test().unwrap();
-    tanaka.start_network_for_test().unwrap();
-    takuro.connect_peer_for_test(tanaka.local_server_port_for_test().unwrap()).unwrap();
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if !takuro.state().peers().is_empty() && !tanaka.state().peers().is_empty() {
-            break;
-        }
-        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
-        let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
-    }
-
-    assert!(!takuro.state().peers().is_empty(), "takuro should have a peer");
-    assert!(!tanaka.state().peers().is_empty(), "tanaka should have a peer");
-
-    let endpoint = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
         text: "review-auth suggested".into(),
         intent: AiIntent::SkillSuggest,
@@ -231,10 +196,7 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
             raw_text: None,
         }),
     };
-    let mut encoded = Vec::new();
-    bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
-    tanaka.node_handler().network().send(endpoint, &encoded);
-    takuro.process_next_event_with_timeout_for_test(Duration::from_secs(1)).unwrap();
+    takuro.inject_remote_ai_response_for_test("tanaka", payload);
 
     takuro.handle_input_line_for_test("/run 1").unwrap();
 
