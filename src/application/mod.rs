@@ -1535,7 +1535,7 @@ fn parse_semver_tuple(version: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-fn render_ai_payload(payload: &AiPayload) -> String {
+pub fn render_ai_payload(payload: &AiPayload) -> String {
     if let Some(structured) = &payload.structured {
         match payload.intent {
             AiIntent::Todo if !structured.todos.is_empty() => structured
