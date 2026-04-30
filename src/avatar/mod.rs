@@ -61,12 +61,14 @@ pub fn colors_to_spans(colors: Vec<Vec<Color>>) -> Vec<Spans<'static>> {
     if height == 0 {
         return spans_vec;
     }
-    let width = colors[0].len();
+    let width = colors.iter().map(|row| row.len()).max().unwrap_or(0);
 
     for y in (0..height).step_by(2) {
         let mut line = Vec::new();
-        for (x, &top) in colors[y].iter().enumerate().take(width) {
-            let bottom = if y + 1 < height { colors[y + 1][x] } else { Color::Reset };
+        for x in 0..width {
+            let top = colors[y].get(x).copied().unwrap_or(Color::Reset);
+            let bottom =
+                colors.get(y + 1).and_then(|row| row.get(x)).copied().unwrap_or(Color::Reset);
 
             match (top, bottom) {
                 (Color::Reset, Color::Reset) => line.push(Span::raw(" ")),
