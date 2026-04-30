@@ -224,12 +224,12 @@ fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "avatar-ffi"))]
 mod tests {
     use super::*;
+    use tui::style::Color;
 
     #[test]
-    #[cfg(feature = "avatar-ffi")]
     fn test_parse_ansi_colors() {
         let input = "\x1b[31mRed\x1b[0m \x1b[32mGreen\x1b[0m";
         let rendered = parse_ansi(input);
