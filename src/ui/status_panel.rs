@@ -37,13 +37,8 @@ pub fn draw_status_panel(
     let av_art = avatar_manager.render(&state.ai_avatar, avatar_state, state.avatar_size);
     let mut left_lines = Vec::new();
 
-    // AI avatar (Normal size is 3 lines)
-    for line in av_art.lines() {
-        left_lines.push(Spans::from(Span::styled(
-            line.to_string(),
-            Style::default().fg(Color::LightCyan),
-        )));
-    }
+    // AI avatar
+    left_lines.extend(av_art);
 
     left_lines.push(Spans::from(vec![
         Span::styled("Mode: ", Style::default().fg(Color::Gray)),
@@ -245,6 +240,7 @@ mod tests {
     #[test]
     fn rendered_panel_includes_provider_and_wider_text() {
         let mut state = State::default();
+        state.avatar_size = crate::avatar::AvatarSize::Compact;
         state.ai_mode = AiMode::Clerk;
         state.ai_provider = AiProvider::Gemini;
         state.ai_state = AiState::Failed("Connection refused by upstream sidecar".into());
@@ -295,6 +291,7 @@ mod tests {
     #[test]
     fn rendered_panel_reports_proposal_overflow() {
         let mut state = State::default();
+        state.avatar_size = crate::avatar::AvatarSize::Compact;
         state.ai_mode = AiMode::Operator;
         state.ai_provider = AiProvider::Claude;
         state.ai_state = AiState::Idle;

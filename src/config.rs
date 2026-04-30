@@ -274,6 +274,8 @@ pub struct Theme {
     pub progress_bar_color: Color,
     pub command_color: Color,
     pub input_panel_color: Color,
+    pub mention_me_color: Color,
+    pub mention_other_color: Color,
 }
 
 impl Default for Theme {
@@ -295,6 +297,8 @@ impl Theme {
             progress_bar_color: Color::LightGreen,
             command_color: Color::LightYellow,
             input_panel_color: Color::White,
+            mention_me_color: Color::LightMagenta,
+            mention_other_color: Color::LightYellow,
         }
     }
 
@@ -310,6 +314,8 @@ impl Theme {
             progress_bar_color: Color::LightGreen,
             command_color: Color::LightYellow,
             input_panel_color: Color::Black,
+            mention_me_color: Color::Magenta,
+            mention_other_color: Color::Yellow,
         }
     }
 }
