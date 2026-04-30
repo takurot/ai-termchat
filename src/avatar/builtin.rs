@@ -1,4 +1,6 @@
-use super::{AvatarPlugin, AvatarSize, AvatarState};
+use super::{AvatarPlugin, AvatarSize, AvatarState, colors_to_spans};
+use tui::style::{Color, Style};
+use tui::text::{Span, Spans};
 
 // ─── human_default ────────────────────────────────────────────────────────────
 
@@ -9,37 +11,51 @@ impl AvatarPlugin for HumanDefault {
         "human_default"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+        let color = Color::Cyan;
         match size {
-            AvatarSize::Compact => match state {
-                AvatarState::Online | AvatarState::Idle => "[H]●".into(),
-                AvatarState::Busy | AvatarState::Acting => "[H]◉".into(),
-                AvatarState::Away => "[H]◌".into(),
-                AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => "[H]○".into(),
-                _ => "[H]·".into(),
-            },
-            AvatarSize::Normal => match state {
-                AvatarState::Online | AvatarState::Idle => " (^_^)\n  |H|\n  / \\".into(),
-                AvatarState::Busy | AvatarState::Acting => " (>_<)\n  |H|\n  / \\".into(),
-                AvatarState::Away => " (-_-)\n  |H|\n  / \\".into(),
-                AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
-                    " (x_x)\n  |H|\n  / \\".into()
-                }
-                _ => " (o_o)\n  |H|\n  / \\".into(),
-            },
-            AvatarSize::Expressive => match state {
-                AvatarState::Online | AvatarState::Idle => {
-                    "  .-\"\"-.\n ( ^_^ )\n  \\|H|/\n  / | \\\n /  |  \\".into()
-                }
-                AvatarState::Busy | AvatarState::Acting => {
-                    "  .-\"\"-.\n ( >_< )\n  \\|H|/\n  / | \\\n /  |  \\".into()
-                }
-                AvatarState::Away => "  .-\"\"-.\n ( -_- )\n  \\|H|/\n  / | \\\n /  |  \\".into(),
-                AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
-                    "  .-\"\"-.\n ( x_x )\n  \\|H|/\n  / | \\\n /  |  \\".into()
-                }
-                _ => "  .-\"\"-.\n ( o_o )\n  \\|H|/\n  / | \\\n /  |  \\".into(),
-            },
+            AvatarSize::Compact => {
+                let text = match state {
+                    AvatarState::Online | AvatarState::Idle => "[H]●",
+                    AvatarState::Busy | AvatarState::Acting => "[H]◉",
+                    AvatarState::Away => "[H]◌",
+                    AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => "[H]○",
+                    _ => "[H]·",
+                };
+                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+            }
+            AvatarSize::Normal => {
+                let art: &'static str = match state {
+                    AvatarState::Online | AvatarState::Idle => " (^_^)\n  |H|\n  / \\",
+                    AvatarState::Busy | AvatarState::Acting => " (>_<)\n  |H|\n  / \\",
+                    AvatarState::Away => " (-_-)\n  |H|\n  / \\",
+                    AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
+                        " (x_x)\n  |H|\n  / \\"
+                    }
+                    _ => " (o_o)\n  |H|\n  / \\",
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
+            AvatarSize::Expressive => {
+                let art: &'static str = match state {
+                    AvatarState::Online | AvatarState::Idle => {
+                        "  .-\"\"-.\n ( ^_^ )\n  \\|H|/\n  / | \\\n /  |  \\"
+                    }
+                    AvatarState::Busy | AvatarState::Acting => {
+                        "  .-\"\"-.\n ( >_< )\n  \\|H|/\n  / | \\\n /  |  \\"
+                    }
+                    AvatarState::Away => "  .-\"\"-.\n ( -_- )\n  \\|H|/\n  / | \\\n /  |  \\",
+                    AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => {
+                        "  .-\"\"-.\n ( x_x )\n  \\|H|/\n  / | \\\n /  |  \\"
+                    }
+                    _ => "  .-\"\"-.\n ( o_o )\n  \\|H|/\n  / | \\\n /  |  \\",
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
         }
     }
 }
@@ -53,39 +69,50 @@ pub fn human_default() -> Box<dyn AvatarPlugin> {
 
 struct AiDefault;
 
+impl AiDefault {
+    fn get_grid(&self, state: AvatarState) -> Vec<Vec<Color>> {
+        let (head, socket, pupil) = match state {
+            AvatarState::Thinking => (Color::Yellow, Color::Rgb(255, 165, 0), Color::White),
+            AvatarState::Acting => (Color::Magenta, Color::Blue, Color::Cyan),
+            _ => (Color::Green, Color::DarkGray, Color::White),
+        };
+        let x = Color::Reset;
+        let h = head;
+        let s = socket;
+        let p = pupil;
+
+        vec![
+            vec![x, x, h, h, h, h, x, x],
+            vec![x, h, h, h, h, h, h, x],
+            vec![h, h, h, h, h, h, h, h],
+            vec![h, s, s, h, h, s, s, h],
+            vec![h, p, p, h, h, p, p, h],
+            vec![h, h, h, h, h, h, h, h],
+            vec![x, h, h, h, h, h, h, x],
+            vec![x, x, h, h, h, h, x, x],
+        ]
+    }
+}
+
 impl AvatarPlugin for AiDefault {
     fn preset_name(&self) -> &str {
         "ai_default"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
         match size {
-            AvatarSize::Compact => match state {
-                AvatarState::Idle | AvatarState::Online => "[AI]◆".into(),
-                AvatarState::Thinking => "[AI]…".into(),
-                AvatarState::Acting => "[AI]▶".into(),
-                AvatarState::Disabled => "[AI]□".into(),
-                AvatarState::Failed => "[AI]✗".into(),
-                _ => "[AI]·".into(),
-            },
-            AvatarSize::Normal => match state {
-                AvatarState::Idle | AvatarState::Online => " [*_*]\n  |AI|\n  / \\".into(),
-                AvatarState::Thinking => " [._.]  \n  |AI| ~\n  / \\".into(),
-                AvatarState::Acting => " [>_>]\n  |AI|\n  >>\\".into(),
-                AvatarState::Disabled => " [- -]\n  |AI|\n  / \\".into(),
-                AvatarState::Failed => " [!_!]\n  |AI|\n  / \\".into(),
-                _ => " [o_o]\n  |AI|\n  / \\".into(),
-            },
-            AvatarSize::Expressive => match state {
-                AvatarState::Idle | AvatarState::Online => {
-                    "  .---.\n |*_ *|\n  |AI|\n  / | \\\n /  |  \\".into()
-                }
-                AvatarState::Thinking => "  .---.\n |._. |  ~\n  |AI|\n  / | \\\n /  |  \\".into(),
-                AvatarState::Acting => "  .---.\n |>_> |\n  |AI|\n  >> | \\\n />> |  \\".into(),
-                AvatarState::Disabled => "  .---.\n |- - |\n  |AI|\n  / | \\\n /  |  \\".into(),
-                AvatarState::Failed => "  .---.\n |!_! |\n  |AI|\n  / | \\\n /  |  \\".into(),
-                _ => "  .---.\n |o_o |\n  |AI|\n  / | \\\n /  |  \\".into(),
-            },
+            AvatarSize::Compact => {
+                let (text, color) = match state {
+                    AvatarState::Idle | AvatarState::Online => ("[AI]◆", Color::Green),
+                    AvatarState::Thinking => ("[AI]…", Color::Yellow),
+                    AvatarState::Acting => ("[AI]▶", Color::Magenta),
+                    AvatarState::Disabled => ("[AI]□", Color::Gray),
+                    AvatarState::Failed => ("[AI]✗", Color::Red),
+                    _ => ("[AI]·", Color::Gray),
+                };
+                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+            }
+            AvatarSize::Normal | AvatarSize::Expressive => colors_to_spans(self.get_grid(state)),
         }
     }
 }
@@ -104,40 +131,58 @@ impl AvatarPlugin for RobotGuardian {
         "robot_guardian"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+        let color = Color::Yellow;
         match size {
-            AvatarSize::Compact => match state {
-                AvatarState::Idle | AvatarState::Online => "[RG]■".into(),
-                AvatarState::Thinking => "[RG]⠿".into(),
-                AvatarState::Acting => "[RG]⚡".into(),
-                AvatarState::Disabled => "[RG]░".into(),
-                AvatarState::Failed => "[RG]✗".into(),
-                AvatarState::Busy => "[RG]◈".into(),
-                AvatarState::Away => "[RG]◇".into(),
-                AvatarState::Offline => "[RG]□".into(),
-            },
-            AvatarSize::Normal => match state {
-                AvatarState::Idle | AvatarState::Online => " <|=|>\n [RG]\n  /|\\".into(),
-                AvatarState::Thinking => " <|?|>\n [RG] ~\n  /|\\".into(),
-                AvatarState::Acting => " <|!|>\n [RG]\n  >>\\".into(),
-                AvatarState::Disabled => " <|-|>\n [RG]\n  /|\\".into(),
-                AvatarState::Failed => " <|X|>\n [RG]\n  /|\\".into(),
-                AvatarState::Busy => " <|*|>\n [RG]\n  /|\\".into(),
-                AvatarState::Away => " <|.|>\n [RG]\n  /|\\".into(),
-                AvatarState::Offline => " <| |>\n [RG]\n  /|\\".into(),
-            },
-            AvatarSize::Expressive => match state {
-                AvatarState::Idle | AvatarState::Online => {
-                    " ┌─────┐\n │ |=| │\n │[RG] │\n └──┬──┘\n   /|\\".into()
-                }
-                AvatarState::Thinking => " ┌─────┐\n │ |?| │~\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-                AvatarState::Acting => " ┌─────┐\n │ |!| │\n │[RG] │\n └──┬──┘\n  >>|\\".into(),
-                AvatarState::Disabled => " ┌─────┐\n │ |-| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-                AvatarState::Failed => " ┌─────┐\n │ |X| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-                AvatarState::Busy => " ┌─────┐\n │ |*| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-                AvatarState::Away => " ┌─────┐\n │ |.| │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-                AvatarState::Offline => " ┌─────┐\n │ | | │\n │[RG] │\n └──┬──┘\n   /|\\".into(),
-            },
+            AvatarSize::Compact => {
+                let text = match state {
+                    AvatarState::Idle | AvatarState::Online => "[RG]■",
+                    AvatarState::Thinking => "[RG]⠿",
+                    AvatarState::Acting => "[RG]⚡",
+                    AvatarState::Disabled => "[RG]░",
+                    AvatarState::Failed => "[RG]✗",
+                    AvatarState::Busy => "[RG]◈",
+                    AvatarState::Away => "[RG]◇",
+                    AvatarState::Offline => "[RG]□",
+                };
+                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+            }
+            AvatarSize::Normal => {
+                let art: &'static str = match state {
+                    AvatarState::Idle | AvatarState::Online => " <|=|>\n [RG]\n  /|\\",
+                    AvatarState::Thinking => " <|?|>\n [RG] ~\n  /|\\",
+                    AvatarState::Acting => " <|!|>\n [RG]\n  >>\\",
+                    AvatarState::Disabled => " <|-|>\n [RG]\n  /|\\",
+                    AvatarState::Failed => " <|X|>\n [RG]\n  /|\\",
+                    AvatarState::Busy => " <|*|>\n [RG]\n  /|\\",
+                    AvatarState::Away => " <|.|>\n [RG]\n  /|\\",
+                    AvatarState::Offline => " <| |>\n [RG]\n  /|\\",
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
+            AvatarSize::Expressive => {
+                let art: &'static str = match state {
+                    AvatarState::Idle | AvatarState::Online => {
+                        " ┌─────┐\n │ |=| │\n │[RG] │\n └──┬──┘\n   /|\\"
+                    }
+                    AvatarState::Thinking => {
+                        " ┌─────┐\n │ |?| │~\n │[RG] │\n └──┬──┘\n   /|\\"
+                    }
+                    AvatarState::Acting => " ┌─────┐\n │ |!| │\n │[RG] │\n └──┬──┘\n  >>|\\",
+                    AvatarState::Disabled => " ┌─────┐\n │ |-| │\n │[RG] │\n └──┬──┘\n   /|\\",
+                    AvatarState::Failed => " ┌─────┐\n │ |X| │\n │[RG] │\n └──┬──┘\n   /|\\",
+                    AvatarState::Busy => " ┌─────┐\n │ |*| │\n │[RG] │\n └──┬──┘\n   /|\\",
+                    AvatarState::Away => " ┌─────┐\n │ |.| │\n │[RG] │\n └──┬──┘\n   /|\\",
+                    AvatarState::Offline => {
+                        " ┌─────┐\n │ | | │\n │[RG] │\n └──┬──┘\n   /|\\"
+                    }
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
         }
     }
 }
@@ -156,54 +201,68 @@ impl AvatarPlugin for ClaudeAvatar {
         "claude"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+        let color = Color::LightMagenta;
         match size {
-            AvatarSize::Compact => match state {
-                AvatarState::Idle | AvatarState::Online => "◈(・ω・)".into(),
-                AvatarState::Thinking => "◉(・・・)".into(),
-                AvatarState::Acting => "▶(☆ω☆)".into(),
-                AvatarState::Failed => "✕(×_×)".into(),
-                AvatarState::Disabled => "○(・ー・)".into(),
-                AvatarState::Busy => "◉(>ω<)".into(),
-                AvatarState::Away => "◈(-ω-)".into(),
-                AvatarState::Offline => "○(._.)".into(),
-            },
-            AvatarSize::Normal => match state {
-                AvatarState::Idle | AvatarState::Online => " (・ω・)\n╰[claude]╯\n  /   \\".into(),
-                AvatarState::Thinking => " (・・・)\n╰[claude]╯ ~\n  /   \\".into(),
-                AvatarState::Acting => " (☆ω☆)\n╰[claude]╯>>\n  >>  \\".into(),
-                AvatarState::Failed => " (×_×)\n╰[claude]╯\n  /   \\".into(),
-                AvatarState::Disabled => " (・ー・)\n╰[claude]╯\n  /   \\".into(),
-                AvatarState::Busy => " (>ω<)\n╰[claude]╯\n  / ! \\".into(),
-                AvatarState::Away => " (-ω-)\n╰[claude]╯\n  /   \\".into(),
-                AvatarState::Offline => " (._. )\n╰[claude]╯\n  /   \\".into(),
-            },
-            AvatarSize::Expressive => match state {
-                AvatarState::Idle | AvatarState::Online => {
-                    "╭──────╮\n│ ◕ω◕  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
-                }
-                AvatarState::Thinking => {
-                    "╭──────╮\n│ ◉ ◉  │~\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
-                }
-                AvatarState::Acting => {
-                    "╭──────╮\n│ ☆ω☆  │\n│claude│\n╰──┬───╯\n >>|__\n/>>   \\".into()
-                }
-                AvatarState::Failed => {
-                    "╭──────╮\n│ ×_×  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
-                }
-                AvatarState::Disabled => {
-                    "╭──────╮\n│ ・ー・ │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
-                }
-                AvatarState::Busy => {
-                    "╭──────╮\n│ >ω<  │\n│claude│\n╰──┬───╯\n __|__\n/ ! \\".into()
-                }
-                AvatarState::Away => {
-                    "╭──────╮\n│ -ω-  │\n│claude│\n╰──┬───╯\n __|__\nz/    \\".into()
-                }
-                AvatarState::Offline => {
-                    "╭──────╮\n│ ._.  │\n│claude│\n╰──┬───╯\n __|__\n/     \\".into()
-                }
-            },
+            AvatarSize::Compact => {
+                let text = match state {
+                    AvatarState::Idle | AvatarState::Online => "◈(・ω・)",
+                    AvatarState::Thinking => "◉(・・・)",
+                    AvatarState::Acting => "▶(☆ω☆)",
+                    AvatarState::Failed => "✕(×_×)",
+                    AvatarState::Disabled => "○(・ー・)",
+                    AvatarState::Busy => "◉(>ω<)",
+                    AvatarState::Away => "◈(-ω-)",
+                    AvatarState::Offline => "○(._.)",
+                };
+                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+            }
+            AvatarSize::Normal => {
+                let art: &'static str = match state {
+                    AvatarState::Idle | AvatarState::Online => " (・ω・)\n╰[claude]╯\n  /   \\",
+                    AvatarState::Thinking => " (・・・)\n╰[claude]╯ ~\n  /   \\",
+                    AvatarState::Acting => " (☆ω☆)\n╰[claude]╯>>\n  >>  \\",
+                    AvatarState::Failed => " (×_×)\n╰[claude]╯\n  /   \\",
+                    AvatarState::Disabled => " (・ー・)\n╰[claude]╯\n  /   \\",
+                    AvatarState::Busy => " (>ω<)\n╰[claude]╯\n  / ! \\",
+                    AvatarState::Away => " (-ω-)\n╰[claude]╯\n  /   \\",
+                    AvatarState::Offline => " (._. )\n╰[claude]╯\n  /   \\",
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
+            AvatarSize::Expressive => {
+                let art: &'static str = match state {
+                    AvatarState::Idle | AvatarState::Online => {
+                        "╭──────╮\n│ ◕ω◕  │\n│claude│\n╰──┬───╯\n __|__\n/     \\"
+                    }
+                    AvatarState::Thinking => {
+                        "╭──────╮\n│ ◉ ◉  │~\n│claude│\n╰──┬───╯\n __|__\n/     \\"
+                    }
+                    AvatarState::Acting => {
+                        "╭──────╮\n│ ☆ω☆  │\n│claude│\n╰──┬───╯\n >>|__\n/>>   \\"
+                    }
+                    AvatarState::Failed => {
+                        "╭──────╮\n│ ×_×  │\n│claude│\n╰──┬───╯\n __|__\n/     \\"
+                    }
+                    AvatarState::Disabled => {
+                        "╭──────╮\n│ ・ー・ │\n│claude│\n╰──┬───╯\n __|__\n/     \\"
+                    }
+                    AvatarState::Busy => {
+                        "╭──────╮\n│ >ω<  │\n│claude│\n╰──┬───╯\n __|__\n/ ! \\"
+                    }
+                    AvatarState::Away => {
+                        "╭──────╮\n│ -ω-  │\n│claude│\n╰──┬───╯\n __|__\nz/    \\"
+                    }
+                    AvatarState::Offline => {
+                        "╭──────╮\n│ ._.  │\n│claude│\n╰──┬───╯\n __|__\n/     \\"
+                    }
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
         }
     }
 }
@@ -222,56 +281,63 @@ impl AvatarPlugin for NekoAvatar {
         "neko"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+        let color = Color::LightRed;
         match size {
-            AvatarSize::Compact => match state {
-                AvatarState::Online | AvatarState::Idle => "=^・ω・^=".into(),
-                AvatarState::Away => "=^-ω-^=".into(),
-                AvatarState::Offline => "=^x_x^=".into(),
-                AvatarState::Busy | AvatarState::Acting => "=^>ω<^=".into(),
-                AvatarState::Thinking => "=^・・・^=".into(),
-                AvatarState::Disabled => "=^・ー・^=".into(),
-                AvatarState::Failed => "=^×_×^=".into(),
-            },
-            AvatarSize::Normal => match state {
-                AvatarState::Online | AvatarState::Idle => " /\\_/\\\n( ^ω^ )\n > 🐾 <".into(),
-                AvatarState::Away => " /\\_/\\\n( -ω- )\n > zzz".into(),
-                AvatarState::Offline => " /\\_/\\\n( x_x )\n >    <".into(),
-                AvatarState::Busy | AvatarState::Acting => " /\\_/\\\n( >ω< )\n > !! <".into(),
-                AvatarState::Thinking => " /\\_/\\\n( ・・・)\n > ... <".into(),
-                AvatarState::Disabled => " /\\_/\\\n( ・ー・)\n >    <".into(),
-                AvatarState::Failed => " /\\_/\\\n( ×_× )\n > !! <".into(),
-            },
-            AvatarSize::Expressive => match state {
-                AvatarState::Online | AvatarState::Idle => {
-                    " /\\_____/\\\n/  ^   ^  \\\n\\ ( ◕ω◕ ) /\n \\  =^=  /\n  \\/   \\/\n  neko!"
-                        .into()
-                }
-                AvatarState::Away => {
-                    " /\\_____/\\\n/  -   -  \\\n\\ ( -ω- ) /\n \\  =^=  /\n  \\/   \\/\n  zzzz"
-                        .into()
-                }
-                AvatarState::Offline => {
-                    " /\\_____/\\\n/  x   x  \\\n\\ ( x_x ) /\n \\  =^=  /\n  \\/   \\/\n  gone"
-                        .into()
-                }
-                AvatarState::Busy | AvatarState::Acting => {
-                    " /\\_____/\\\n/  >   <  \\\n\\ ( >ω< ) /\n \\  =^=  /\n  \\/   \\/\n  busy!"
-                        .into()
-                }
-                AvatarState::Thinking => {
-                    " /\\_____/\\\n/  .   .  \\\n\\ (・・・) /\n \\  =^=  /\n  \\/   \\/\n  hmm..."
-                        .into()
-                }
-                AvatarState::Disabled => {
-                    " /\\_____/\\\n/  -   -  \\\n\\ (・ー・) /\n \\  =^=  /\n  \\/   \\/\n  ..."
-                        .into()
-                }
-                AvatarState::Failed => {
-                    " /\\_____/\\\n/  ×   ×  \\\n\\ ( ×_× ) /\n \\  =^=  /\n  \\/   \\/\n  oh no"
-                        .into()
-                }
-            },
+            AvatarSize::Compact => {
+                let text = match state {
+                    AvatarState::Online | AvatarState::Idle => "=^・ω・^=",
+                    AvatarState::Away => "=^-ω-^=",
+                    AvatarState::Offline => "=^x_x^=",
+                    AvatarState::Busy | AvatarState::Acting => "=^>ω<^=",
+                    AvatarState::Thinking => "=^・・・^=",
+                    AvatarState::Disabled => "=^・ー・^=",
+                    AvatarState::Failed => "=^×_×^=",
+                };
+                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+            }
+            AvatarSize::Normal => {
+                let art: &'static str = match state {
+                    AvatarState::Online | AvatarState::Idle => " /\\_/\\\n( ^ω^ )\n > 🐾 <",
+                    AvatarState::Away => " /\\_/\\\n( -ω- )\n > zzz",
+                    AvatarState::Offline => " /\\_/\\\n( x_x )\n >    <",
+                    AvatarState::Busy | AvatarState::Acting => " /\\_/\\\n( >ω< )\n > !! <",
+                    AvatarState::Thinking => " /\\_/\\\n( ・・・)\n > ... <",
+                    AvatarState::Disabled => " /\\_/\\\n( ・ー・)\n >    <",
+                    AvatarState::Failed => " /\\_/\\\n( ×_× )\n > !! <",
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
+            AvatarSize::Expressive => {
+                let art: &'static str = match state {
+                    AvatarState::Online | AvatarState::Idle => {
+                        " /\\_____/\\\n/  ^   ^  \\\n\\ ( ◕ω◕ ) /\n \\  =^=  /\n  \\/   \\/\n  neko!"
+                    }
+                    AvatarState::Away => {
+                        " /\\_____/\\\n/  -   -  \\\n\\ ( -ω- ) /\n \\  =^=  /\n  \\/   \\/\n  zzzz"
+                    }
+                    AvatarState::Offline => {
+                        " /\\_____/\\\n/  x   x  \\\n\\ ( x_x ) /\n \\  =^=  /\n  \\/   \\/\n  gone"
+                    }
+                    AvatarState::Busy | AvatarState::Acting => {
+                        " /\\_____/\\\n/  >   <  \\\n\\ ( >ω< ) /\n \\  =^=  /\n  \\/   \\/\n  busy!"
+                    }
+                    AvatarState::Thinking => {
+                        " /\\_____/\\\n/  .   .  \\\n\\ (・・・) /\n \\  =^=  /\n  \\/   \\/\n  hmm..."
+                    }
+                    AvatarState::Disabled => {
+                        " /\\_____/\\\n/  -   -  \\\n\\ (・ー・) /\n \\  =^=  /\n  \\/   \\/\n  ..."
+                    }
+                    AvatarState::Failed => {
+                        " /\\_____/\\\n/  ×   ×  \\\n\\ ( ×_× ) /\n \\  =^=  /\n  \\/   \\/\n  oh no"
+                    }
+                };
+                art.lines()
+                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .collect()
+            }
         }
     }
 }
@@ -289,12 +355,12 @@ pub fn all_builtins() -> Vec<Box<dyn AvatarPlugin>> {
 }
 
 /// Render the `human_default` avatar without a heap allocation.
-pub fn render_human(state: AvatarState, size: AvatarSize) -> String {
+pub fn render_human(state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
     HumanDefault.render(state, size)
 }
 
 /// Render the `ai_default` avatar without a heap allocation.
-pub fn render_ai(state: AvatarState, size: AvatarSize) -> String {
+pub fn render_ai(state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
     AiDefault.render(state, size)
 }
 
@@ -328,10 +394,11 @@ mod tests {
             ] {
                 let rendered = plugin.render(state.clone(), AvatarSize::Compact);
                 assert!(
-                    !rendered.contains('\n'),
-                    "Compact render for '{}' {:?} must be single-line",
+                    rendered.len() <= 1,
+                    "Compact render for '{}' {:?} must be single-line (got {} lines)",
                     plugin.preset_name(),
-                    state
+                    state,
+                    rendered.len()
                 );
             }
         }

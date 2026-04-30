@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use tui::text::{Span, Spans};
 
 use super::builtin::{ai_default, all_builtins};
 use super::{AvatarPlugin, AvatarSize, AvatarState};
@@ -67,7 +68,7 @@ impl AvatarManager {
     /// Render an avatar for the given preset name, state, and size.
     ///
     /// Falls back to `ai_default` if the preset is not found.
-    pub fn render(&self, preset: &str, state: AvatarState, size: AvatarSize) -> String {
+    pub fn render(&self, preset: &str, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
         self.find_plugin(preset)
             .map(|p| p.render(state.clone(), size))
             .unwrap_or_else(|| ai_default().render(state, size))
@@ -109,24 +110,56 @@ impl AvatarPlugin for ExternalPlugin {
         &self.preset
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
         let state_code = avatar_state_to_u32(&state);
         let size_code = avatar_size_to_u32(size);
 
         // SAFETY: `render_fn` comes from a loaded library that passed vtable
         // version validation.  The returned pointer is a valid, null-terminated
         // C string that we must free via `libc::free`.
-        unsafe {
+        let result_str = unsafe {
             let raw = (self.render_fn)(state_code, size_code);
             if raw.is_null() {
-                return String::new();
+                String::new()
+            } else {
+                let cstr = std::ffi::CStr::from_ptr(raw);
+                let result = cstr.to_string_lossy().into_owned();
+                libc::free(raw as *mut libc::c_void);
+                result
             }
-            let cstr = std::ffi::CStr::from_ptr(raw);
-            let result = cstr.to_string_lossy().into_owned();
-            libc::free(raw as *mut libc::c_void);
-            result
-        }
+        };
+
+        parse_ansi(&result_str)
     }
+}
+
+/// A very basic ANSI parser that converts a string into Spans.
+/// Currently just strips ANSI codes and splits by line.
+fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
+    input
+        .lines()
+        .map(|line| {
+            let mut spans = Vec::new();
+            let mut pos = 0;
+            while let Some(esc_start) = line[pos..].find('\x1b') {
+                let esc_start = pos + esc_start;
+                if esc_start > pos {
+                    spans.push(Span::raw(line[pos..esc_start].to_string()));
+                }
+                if let Some(esc_end) = line[esc_start..].find('m') {
+                    let esc_end = esc_start + esc_end;
+                    // TODO: parse color codes here if needed.
+                    pos = esc_end + 1;
+                } else {
+                    pos = esc_start + 1;
+                }
+            }
+            if pos < line.len() {
+                spans.push(Span::raw(line[pos..].to_string()));
+            }
+            Spans::from(spans)
+        })
+        .collect()
 }
 
 #[cfg(feature = "avatar-ffi")]
