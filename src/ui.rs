@@ -281,6 +281,18 @@ fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> 
                 continue;
             }
 
+            // Mentions must be at a boundary (start of string or preceded by non-alphanumeric char)
+            let is_boundary = i == 0
+                || content[..i]
+                    .chars()
+                    .next_back()
+                    .map(|c| !c.is_alphanumeric() && c != '_' && c != '-')
+                    .unwrap_or(true);
+
+            if !is_boundary {
+                continue;
+            }
+
             // Push text before '@'
             if i > last_pos {
                 spans.push(Span::raw(&content[last_pos..i]));
@@ -425,15 +437,24 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_content_single_at() {
+    fn test_parse_content_no_mentions_in_email() {
         let theme = Theme::default();
         let content = "Email me at user@example.com";
         let spans = parse_content(content, &theme, "alice");
-        // Currently my implementation will highlight "@example" if it's considered a name.
-        // "Email me at user", "@example", ".com"
-        // If we want to avoid this, we'd need more complex logic.
-        // But for a chat app, @name is common.
-        assert_eq!(spans[1].content, "@example");
+        // With boundary check, it should be a single raw span
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, content);
+    }
+
+    #[test]
+    fn test_parse_content_single_at() {
+        let theme = Theme::default();
+        let content = "Just an @ symbol";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Just an ");
+        assert_eq!(spans[1].content, "@");
+        assert_eq!(spans[2].content, " symbol");
     }
 }
 
