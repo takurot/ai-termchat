@@ -24,9 +24,10 @@ pub fn draw_status_panel(
     let inner_area = block.inner(chunk);
     frame.render_widget(block, chunk);
 
+    let left_width = (inner_area.width as f32 * 0.45).clamp(25.0, 35.0) as u16;
     let side_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(35), Constraint::Min(0)].as_ref())
+        .constraints([Constraint::Length(left_width), Constraint::Min(0)].as_ref())
         .split(inner_area);
 
     let left_chunk = side_chunks[0];
@@ -47,12 +48,10 @@ pub fn draw_status_panel(
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ),
     ]));
-    left_lines.push(Spans::from(vec![
-        Span::styled(
-            format!("[{}]", format_ai_provider(&state.ai_provider)),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
+    left_lines.push(Spans::from(vec![Span::styled(
+        format!("[{}]", format_ai_provider(&state.ai_provider)),
+        Style::default().fg(Color::DarkGray),
+    )]));
     left_lines.push(Spans::from(vec![
         Span::styled("State: ", Style::default().fg(Color::Gray)),
         Span::styled(
@@ -68,14 +67,18 @@ pub fn draw_status_panel(
     let proposals = state.skill_proposals();
     if !proposals.is_empty() {
         right_lines.push(Spans::from(vec![
-            Span::styled("Proposals ", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Proposals ",
+                Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+            ),
             Span::styled("(✓ trusted ? verify)", Style::default().fg(Color::DarkGray)),
         ]));
         for proposal in proposals.iter().take(2) {
             right_lines.push(proposal_span(proposal, right_chunk.width));
         }
         if let Some(overflow) = overflow_line(proposals.len().saturating_sub(2)) {
-            right_lines.push(Spans::from(Span::styled(overflow, Style::default().fg(Color::DarkGray))));
+            right_lines
+                .push(Spans::from(Span::styled(overflow, Style::default().fg(Color::DarkGray))));
         }
     }
 
@@ -89,7 +92,7 @@ pub fn draw_status_panel(
                 "TODOs:",
                 Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
             )));
-            
+
             // Calculate remaining lines for TODOs
             let used = right_lines.len();
             let total_h = right_chunk.height as usize;
@@ -100,12 +103,19 @@ pub fn draw_status_panel(
                 for todo in structured.todos.iter().take(todo_take) {
                     let assignee =
                         todo.assignee.as_deref().map(|a| format!("[{}] ", a)).unwrap_or_default();
-                    let text =
-                        format!("• {}{}", assignee, truncate(&todo.text, todo_text_limit(right_chunk.width)));
-                    right_lines
-                        .push(Spans::from(Span::styled(text, Style::default().fg(Color::LightYellow))));
+                    let text = format!(
+                        "• {}{}",
+                        assignee,
+                        truncate(&todo.text, todo_text_limit(right_chunk.width))
+                    );
+                    right_lines.push(Spans::from(Span::styled(
+                        text,
+                        Style::default().fg(Color::LightYellow),
+                    )));
                 }
-                if let Some(overflow) = overflow_line(structured.todos.len().saturating_sub(todo_take)) {
+                if let Some(overflow) =
+                    overflow_line(structured.todos.len().saturating_sub(todo_take))
+                {
                     right_lines.push(Spans::from(Span::styled(
                         overflow,
                         Style::default().fg(Color::DarkGray),
@@ -258,7 +268,7 @@ mod tests {
         let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
         let avatar_manager = AvatarManager::new(avatar_dir);
 
-        let backend = TestBackend::new(72, 8);
+        let backend = TestBackend::new(80, 8);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
@@ -270,7 +280,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let rendered = (0..8)
             .map(|y| {
-                (0..72)
+                (0..80)
                     .map(|x| buffer.get(x, y).symbol.clone())
                     .collect::<String>()
                     .trim_end()
@@ -278,8 +288,6 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        
-        println!("RENDERED:\n{}", rendered);
 
         assert!(rendered.contains("Mode: clerk"));
         assert!(rendered.contains("[gemini]"));
@@ -304,7 +312,7 @@ mod tests {
         let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
         let avatar_manager = AvatarManager::new(avatar_dir);
 
-        let backend = TestBackend::new(72, 8);
+        let backend = TestBackend::new(80, 8);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
@@ -316,7 +324,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let rendered = (0..8)
             .map(|y| {
-                (0..72)
+                (0..80)
                     .map(|x| buffer.get(x, y).symbol.clone())
                     .collect::<String>()
                     .trim_end()

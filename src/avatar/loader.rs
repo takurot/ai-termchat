@@ -227,7 +227,6 @@ fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tui::style::Color;
 
     #[test]
     #[cfg(feature = "avatar-ffi")]
