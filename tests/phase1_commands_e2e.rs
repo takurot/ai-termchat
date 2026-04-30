@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
 
 use triadchat::application::{Application, Signal};
-use triadchat::config::Config;
+use triadchat::config::{AiConfig, Config};
 use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
 
 fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
@@ -183,17 +183,21 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
     let script = write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'noop'\n");
 
     let discovery_port = 50000 + (rand::random::<u16>() % 1000);
-    let mut takuro_config = Config::default();
-    takuro_config.user_name = "takuro".into();
-    takuro_config.discovery_addr = format!("239.255.0.1:{discovery_port}").parse().unwrap();
-    takuro_config.terminal_bell = false;
-    takuro_config.ai.command = Some(script.display().to_string());
+    let takuro_config = Config {
+        user_name: "takuro".into(),
+        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
+        terminal_bell: false,
+        ai: AiConfig { command: Some(script.display().to_string()), ..Default::default() },
+        ..Default::default()
+    };
 
-    let mut tanaka_config = Config::default();
-    tanaka_config.user_name = "tanaka".into();
-    tanaka_config.discovery_addr = format!("239.255.0.1:{discovery_port}").parse().unwrap();
-    tanaka_config.terminal_bell = false;
-    tanaka_config.ai.command = Some(script.display().to_string());
+    let tanaka_config = Config {
+        user_name: "tanaka".into(),
+        discovery_addr: format!("239.255.0.1:{discovery_port}").parse().unwrap(),
+        terminal_bell: false,
+        ai: AiConfig { command: Some(script.display().to_string()), ..Default::default() },
+        ..Default::default()
+    };
 
     let mut takuro =
         Application::new_for_test_in_workspace(&takuro_config, workspace.path()).unwrap();
@@ -206,15 +210,15 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
 
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if takuro.state().peers().len() >= 1 && tanaka.state().peers().len() >= 1 {
+        if !takuro.state().peers().is_empty() && !tanaka.state().peers().is_empty() {
             break;
         }
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
         let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }
 
-    assert!(takuro.state().peers().len() >= 1, "takuro should have a peer");
-    assert!(tanaka.state().peers().len() >= 1, "tanaka should have a peer");
+    assert!(!takuro.state().peers().is_empty(), "takuro should have a peer");
+    assert!(!tanaka.state().peers().is_empty(), "tanaka should have a peer");
 
     let endpoint = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
