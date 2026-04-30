@@ -216,3 +216,106 @@ fn room_create_unknown_peer_points_to_peers_command() {
 
     assert_eq!(rendered, "unknown peer 'carol'. Use /peers to see connected peers.");
 }
+
+// ─── /room list edge ──────────────────────────────────────────────────────────
+
+#[test]
+fn room_list_when_no_rooms_emits_no_rooms() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/room list").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("no rooms"));
+}
+
+// ─── /peers edge ──────────────────────────────────────────────────────────────
+
+#[test]
+fn peers_when_no_discovered_peers_emits_no_peers_discovered() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/peers").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("no peers discovered"));
+}
+
+// ─── /run <id> edge ───────────────────────────────────────────────────────────
+
+#[test]
+fn run_with_unknown_proposal_id_shows_unknown_proposal() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/run 1").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("unknown proposal id: 1"));
+}
+
+// ─── /cancel edge ─────────────────────────────────────────────────────────────
+
+#[test]
+fn cancel_with_no_active_task_emits_no_active_task() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/cancel").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("no active task"));
+}
+
+// ─── /avatar set edge ─────────────────────────────────────────────────────────
+
+#[test]
+fn avatar_set_with_unknown_preset_warns_unknown_avatar_preset() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/avatar set self nonexistent_avatar").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("Unknown avatar preset 'nonexistent_avatar'"));
+}
+
+#[test]
+fn avatar_set_with_unknown_target_warns_unknown_target() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/avatar set nope_user robot_guardian").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("Unknown target 'nope_user'"));
+}
+
+// ─── /avatar mode edge ────────────────────────────────────────────────────────
+
+#[test]
+fn avatar_mode_with_unknown_mode_warns_unknown_avatar_mode() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/avatar mode bogus").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("Unknown avatar mode 'bogus'"));
+}
