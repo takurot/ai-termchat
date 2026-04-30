@@ -152,12 +152,20 @@ fn draw_messages_panel(
                     ui_message.extend(parse_content(content, theme, state.local_user_name()));
                     vec![Spans::from(ui_message)]
                 }
-                MessageType::AiText(content) => vec![Spans::from(vec![
-                    Span::styled(date, Style::default().fg(theme.date_color)),
-                    Span::styled(State::AI_NAME, Style::default().fg(Color::LightCyan)),
-                    Span::styled(": ", Style::default().fg(Color::LightCyan)),
-                    Span::styled(content, Style::default().fg(Color::LightCyan)),
-                ])],
+                MessageType::AiText(content) => {
+                    let mut ui_message = vec![
+                        Span::styled(date, Style::default().fg(theme.date_color)),
+                        Span::styled(State::AI_NAME, Style::default().fg(Color::LightCyan)),
+                        Span::styled(": ", Style::default().fg(Color::LightCyan)),
+                    ];
+                    for mut span in parse_content(content, theme, state.local_user_name()) {
+                        if span.style == Style::default() {
+                            span.style = Style::default().fg(Color::LightCyan);
+                        }
+                        ui_message.push(span);
+                    }
+                    vec![Spans::from(ui_message)]
+                }
                 MessageType::System(content, msg_type) => {
                     let (user_color, content_color) = match msg_type {
                         SystemMessageType::Info => theme.system_info_color,
@@ -268,46 +276,66 @@ fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> 
         let mut spans = Vec::new();
         let mut last_pos = 0;
 
-        for (index, _) in content.match_indices('@') {
-            if index < last_pos {
+        for (i, _) in content.match_indices('@') {
+            if i < last_pos {
+                continue;
+            }
+
+            // Mentions must be at a boundary (start of string or preceded by non-alphanumeric char)
+            let is_boundary = i == 0
+                || content[..i]
+                    .chars()
+                    .next_back()
+                    .map(|c| !c.is_alphanumeric() && c != '_' && c != '-')
+                    .unwrap_or(true);
+
+            if !is_boundary {
                 continue;
             }
 
             // Push text before '@'
-            if index > last_pos {
-                spans.push(Span::raw(&content[last_pos..index]));
+            if i > last_pos {
+                spans.push(Span::raw(&content[last_pos..i]));
             }
 
-            // Find the end of the mention (next whitespace or end of string)
-            let remaining = &content[index..];
-            let end_offset = remaining.find(|c: char| c.is_whitespace()).unwrap_or(remaining.len());
+            // Find the end of the mention
+            let mention_part = &content[i..];
+            // Mentions stop at first non-alphanumeric character (except _ or -)
+            // Skip the leading '@'
+            let end_offset = mention_part[1..]
+                .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+                .map(|idx| idx + 1)
+                .unwrap_or(mention_part.len());
 
-            let mention = &remaining[..end_offset];
-            let name_with_punctuation = &mention[1..];
+            if end_offset > 1 {
+                let mention = &mention_part[..end_offset];
+                let name = &mention[1..];
 
-            // Extract the actual name by trimming trailing punctuation
-            let name = name_with_punctuation.trim_end_matches(|c: char| !c.is_alphanumeric());
-            let punctuation_offset = 1 + name.len();
+                let color = if name == local_user_name {
+                    theme.mention_me_color
+                } else if name == "ops-ai" || name == State::AI_NAME {
+                    Color::LightCyan
+                } else {
+                    theme.mention_other_color
+                };
 
-            let style = if name == local_user_name {
-                Style::default().fg(theme.mention_me_color)
-            } else if name == "ops-ai" {
-                Style::default().fg(Color::LightCyan)
+                spans.push(Span::styled(mention, Style::default().fg(color)));
+                last_pos = i + end_offset;
             } else {
-                Style::default().fg(theme.mention_other_color)
-            };
-
-            spans.push(Span::styled(&remaining[..punctuation_offset], style));
-            last_pos = index + punctuation_offset;
+                // Just a single '@' without name, or followed by invalid char
+                spans.push(Span::raw("@"));
+                last_pos = i + 1;
+            }
         }
 
         if last_pos < content.len() {
             spans.push(Span::raw(&content[last_pos..]));
         }
 
-        if spans.is_empty() && !content.is_empty() {
+        if spans.is_empty() {
             spans.push(Span::raw(content));
         }
+
         spans
     }
 }
@@ -339,6 +367,95 @@ fn draw_video_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect)
     let windows = state.windows.values().collect();
     let fb = FrameBuffer::new(windows).block(Block::default().borders(Borders::ALL));
     frame.render_widget(fb, chunk);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Theme;
+    use tui::style::Color;
+
+    #[test]
+    fn test_parse_content_no_mentions() {
+        let theme = Theme::default();
+        let content = "Hello world";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "Hello world");
+        assert_eq!(spans[0].style, Style::default());
+    }
+
+    #[test]
+    fn test_parse_content_mention_me() {
+        let theme = Theme::default();
+        let content = "Hello @alice!";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Hello ");
+        assert_eq!(spans[1].content, "@alice");
+        assert_eq!(spans[1].style.fg, Some(theme.mention_me_color));
+        assert_eq!(spans[2].content, "!");
+    }
+
+    #[test]
+    fn test_parse_content_mention_other() {
+        let theme = Theme::default();
+        let content = "Hi @bob, how are you?";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Hi ");
+        assert_eq!(spans[1].content, "@bob");
+        assert_eq!(spans[1].style.fg, Some(theme.mention_other_color));
+        assert_eq!(spans[2].content, ", how are you?");
+    }
+
+    #[test]
+    fn test_parse_content_mention_ai() {
+        let theme = Theme::default();
+        let content = "Ask @ops-ai for help";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Ask ");
+        assert_eq!(spans[1].content, "@ops-ai");
+        assert_eq!(spans[1].style.fg, Some(Color::LightCyan));
+        assert_eq!(spans[2].content, " for help");
+    }
+
+    #[test]
+    fn test_parse_content_multiple_mentions() {
+        let theme = Theme::default();
+        let content = "@alice and @bob and @ops-ai";
+        let spans = parse_content(content, &theme, "alice");
+        // ["@alice", " and ", "@bob", " and ", "@ops-ai"]
+        assert_eq!(spans.len(), 5);
+        assert_eq!(spans[0].content, "@alice");
+        assert_eq!(spans[0].style.fg, Some(theme.mention_me_color));
+        assert_eq!(spans[2].content, "@bob");
+        assert_eq!(spans[2].style.fg, Some(theme.mention_other_color));
+        assert_eq!(spans[4].content, "@ops-ai");
+        assert_eq!(spans[4].style.fg, Some(Color::LightCyan));
+    }
+
+    #[test]
+    fn test_parse_content_no_mentions_in_email() {
+        let theme = Theme::default();
+        let content = "Email me at user@example.com";
+        let spans = parse_content(content, &theme, "alice");
+        // With boundary check, it should be a single raw span
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, content);
+    }
+
+    #[test]
+    fn test_parse_content_single_at() {
+        let theme = Theme::default();
+        let content = "Just an @ symbol";
+        let spans = parse_content(content, &theme, "alice");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Just an ");
+        assert_eq!(spans[1].content, "@");
+        assert_eq!(spans[2].content, " symbol");
+    }
 }
 
 #[derive(Default)]

@@ -297,8 +297,8 @@ impl Theme {
             progress_bar_color: Color::LightGreen,
             command_color: Color::LightYellow,
             input_panel_color: Color::White,
-            mention_me_color: Color::LightMagenta,
-            mention_other_color: Color::LightYellow,
+            mention_me_color: Color::Yellow,
+            mention_other_color: Color::Cyan,
         }
     }
 
@@ -314,8 +314,8 @@ impl Theme {
             progress_bar_color: Color::LightGreen,
             command_color: Color::LightYellow,
             input_panel_color: Color::Black,
-            mention_me_color: Color::Magenta,
-            mention_other_color: Color::Yellow,
+            mention_me_color: Color::Rgb(255, 215, 0), // Gold
+            mention_other_color: Color::Blue,
         }
     }
 }
