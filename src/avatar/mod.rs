@@ -1,6 +1,9 @@
 pub mod builtin;
 pub mod loader;
 
+use tui::style::{Color, Style};
+use tui::text::{Span, Spans};
+
 /// Logical state of an avatar subject (AI or human peer).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AvatarState {
@@ -40,14 +43,43 @@ impl AvatarSize {
     }
 }
 
-/// A plugin that renders ASCII avatar art.
+/// A plugin that renders pixel-art or ASCII avatar art.
 ///
 /// This trait is object-safe and can be used as `Box<dyn AvatarPlugin>`.
 pub trait AvatarPlugin: Send + Sync {
     /// The unique preset name (e.g. `"human_default"`, `"robot_guardian"`).
     fn preset_name(&self) -> &str;
     /// Render the avatar for the given state and size.
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String;
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>>;
+}
+
+/// Helper to convert a 2D color grid into multi-line Spans using the "half-block" technique.
+/// Each character represents two vertical pixels.
+pub fn colors_to_spans(colors: Vec<Vec<Color>>) -> Vec<Spans<'static>> {
+    let mut spans_vec = Vec::new();
+    let height = colors.len();
+    if height == 0 {
+        return spans_vec;
+    }
+    let width = colors.iter().map(|row| row.len()).max().unwrap_or(0);
+
+    for y in (0..height).step_by(2) {
+        let mut line = Vec::new();
+        for x in 0..width {
+            let top = colors[y].get(x).copied().unwrap_or(Color::Reset);
+            let bottom =
+                colors.get(y + 1).and_then(|row| row.get(x)).copied().unwrap_or(Color::Reset);
+
+            match (top, bottom) {
+                (Color::Reset, Color::Reset) => line.push(Span::raw(" ")),
+                (t, Color::Reset) => line.push(Span::styled("▀", Style::default().fg(t))),
+                (Color::Reset, b) => line.push(Span::styled("▄", Style::default().fg(b))),
+                (t, b) => line.push(Span::styled("▀", Style::default().fg(t).bg(b))),
+            }
+        }
+        spans_vec.push(Spans::from(line));
+    }
+    spans_vec
 }
 
 /// C-compatible vtable for FFI plugin loading (`libloading`).
@@ -60,9 +92,9 @@ pub struct AvatarPluginVTable {
     pub version: u32,
     /// Returns the null-terminated preset name.
     pub preset_name: unsafe extern "C" fn() -> *const std::os::raw::c_char,
-    /// Renders the avatar; caller must free the returned CString.
+    /// Renders the avatar as an ANSI-encoded string; caller must free the returned CString.
     pub render: unsafe extern "C" fn(state: u32, size: u32) -> *mut std::os::raw::c_char,
 }
 
 /// Current vtable ABI version. Bump this on any incompatible change.
-pub const VTABLE_VERSION: u32 = 1;
+pub const VTABLE_VERSION: u32 = 2;

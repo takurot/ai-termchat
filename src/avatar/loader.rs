@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use tui::text::Spans;
 
 use super::builtin::{ai_default, all_builtins};
 use super::{AvatarPlugin, AvatarSize, AvatarState};
@@ -67,7 +68,12 @@ impl AvatarManager {
     /// Render an avatar for the given preset name, state, and size.
     ///
     /// Falls back to `ai_default` if the preset is not found.
-    pub fn render(&self, preset: &str, state: AvatarState, size: AvatarSize) -> String {
+    pub fn render(
+        &self,
+        preset: &str,
+        state: AvatarState,
+        size: AvatarSize,
+    ) -> Vec<Spans<'static>> {
         self.find_plugin(preset)
             .map(|p| p.render(state.clone(), size))
             .unwrap_or_else(|| ai_default().render(state, size))
@@ -109,23 +115,133 @@ impl AvatarPlugin for ExternalPlugin {
         &self.preset
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> String {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
         let state_code = avatar_state_to_u32(&state);
         let size_code = avatar_size_to_u32(size);
 
         // SAFETY: `render_fn` comes from a loaded library that passed vtable
         // version validation.  The returned pointer is a valid, null-terminated
         // C string that we must free via `libc::free`.
-        unsafe {
+        let result_str = unsafe {
             let raw = (self.render_fn)(state_code, size_code);
             if raw.is_null() {
-                return String::new();
+                String::new()
+            } else {
+                let cstr = std::ffi::CStr::from_ptr(raw);
+                let result = cstr.to_string_lossy().into_owned();
+                libc::free(raw as *mut libc::c_void);
+                result
             }
-            let cstr = std::ffi::CStr::from_ptr(raw);
-            let result = cstr.to_string_lossy().into_owned();
-            libc::free(raw as *mut libc::c_void);
-            result
-        }
+        };
+
+        parse_ansi(&result_str)
+    }
+}
+
+/// A very basic ANSI parser that converts a string into Spans.
+/// Supports standard SGR color codes (30-37, 40-47, 90-97, 100-107).
+#[cfg(feature = "avatar-ffi")]
+fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
+    use tui::style::{Color, Style};
+    use tui::text::Span;
+
+    input
+        .lines()
+        .map(|line| {
+            let mut spans = Vec::new();
+            let mut pos = 0;
+            let mut current_style = Style::default();
+
+            while let Some(esc_start) = line[pos..].find('\x1b') {
+                let esc_start = pos + esc_start;
+                if esc_start > pos {
+                    spans.push(Span::styled(line[pos..esc_start].to_string(), current_style));
+                }
+
+                if line[esc_start..].starts_with("\x1b[") {
+                    if let Some(m_pos) = line[esc_start..].find('m') {
+                        let m_pos = esc_start + m_pos;
+                        let params = &line[esc_start + 2..m_pos];
+                        for param in params.split(';') {
+                            if let Ok(code) = param.parse::<u32>() {
+                                match code {
+                                    0 => current_style = Style::default(),
+                                    1 => {
+                                        current_style =
+                                            current_style.add_modifier(tui::style::Modifier::BOLD)
+                                    }
+                                    30 => current_style = current_style.fg(Color::Black),
+                                    31 => current_style = current_style.fg(Color::Red),
+                                    32 => current_style = current_style.fg(Color::Green),
+                                    33 => current_style = current_style.fg(Color::Yellow),
+                                    34 => current_style = current_style.fg(Color::Blue),
+                                    35 => current_style = current_style.fg(Color::Magenta),
+                                    36 => current_style = current_style.fg(Color::Cyan),
+                                    37 => current_style = current_style.fg(Color::Gray),
+                                    39 => current_style.fg = None,
+                                    40 => current_style = current_style.bg(Color::Black),
+                                    41 => current_style = current_style.bg(Color::Red),
+                                    42 => current_style = current_style.bg(Color::Green),
+                                    43 => current_style = current_style.bg(Color::Yellow),
+                                    44 => current_style = current_style.bg(Color::Blue),
+                                    45 => current_style = current_style.bg(Color::Magenta),
+                                    46 => current_style = current_style.bg(Color::Cyan),
+                                    47 => current_style = current_style.bg(Color::Gray),
+                                    49 => current_style.bg = None,
+                                    90 => current_style = current_style.fg(Color::DarkGray),
+                                    91 => current_style = current_style.fg(Color::LightRed),
+                                    92 => current_style = current_style.fg(Color::LightGreen),
+                                    93 => current_style = current_style.fg(Color::LightYellow),
+                                    94 => current_style = current_style.fg(Color::LightBlue),
+                                    95 => current_style = current_style.fg(Color::LightMagenta),
+                                    96 => current_style = current_style.fg(Color::LightCyan),
+                                    97 => current_style = current_style.fg(Color::White),
+                                    100 => current_style = current_style.bg(Color::DarkGray),
+                                    101 => current_style = current_style.bg(Color::LightRed),
+                                    102 => current_style = current_style.bg(Color::LightGreen),
+                                    103 => current_style = current_style.bg(Color::LightYellow),
+                                    104 => current_style = current_style.bg(Color::LightBlue),
+                                    105 => current_style = current_style.bg(Color::LightMagenta),
+                                    106 => current_style = current_style.bg(Color::LightCyan),
+                                    107 => current_style = current_style.bg(Color::White),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        pos = m_pos + 1;
+                    } else {
+                        pos = esc_start + 2;
+                    }
+                } else {
+                    pos = esc_start + 1;
+                }
+            }
+            if pos < line.len() {
+                spans.push(Span::styled(line[pos..].to_string(), current_style));
+            }
+            Spans::from(spans)
+        })
+        .collect()
+}
+
+#[cfg(all(test, feature = "avatar-ffi"))]
+mod tests {
+    use super::*;
+    use tui::style::Color;
+
+    #[test]
+    fn test_parse_ansi_colors() {
+        let input = "\x1b[31mRed\x1b[0m \x1b[32mGreen\x1b[0m";
+        let rendered = parse_ansi(input);
+        assert_eq!(rendered.len(), 1);
+        let spans = &rendered[0].0;
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "Red");
+        assert_eq!(spans[0].style.fg, Some(Color::Red));
+        assert_eq!(spans[1].content, " ");
+        assert_eq!(spans[1].style.fg, None);
+        assert_eq!(spans[2].content, "Green");
+        assert_eq!(spans[2].style.fg, Some(Color::Green));
     }
 }
 

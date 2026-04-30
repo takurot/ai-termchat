@@ -35,7 +35,7 @@ fn human_default_compact_is_shorter_than_normal() {
     let normal = plugin.render(AvatarState::Online, AvatarSize::Normal);
     assert!(
         compact.len() <= normal.len(),
-        "Compact ({}) should be <= Normal ({})",
+        "Compact ({} lines) should be <= Normal ({} lines)",
         compact.len(),
         normal.len()
     );
@@ -141,7 +141,7 @@ fn claude_compact_is_single_line_for_all_states() {
     let plugin = claude();
     for state in all_states() {
         let rendered = plugin.render(state.clone(), AvatarSize::Compact);
-        assert!(!rendered.contains('\n'), "claude compact must be single-line for {state:?}");
+        assert!(rendered.len() <= 1, "claude compact must be at most one line for {state:?}");
     }
 }
 
@@ -184,7 +184,7 @@ fn neko_compact_is_single_line_for_all_states() {
     let plugin = neko();
     for state in all_states() {
         let rendered = plugin.render(state.clone(), AvatarSize::Compact);
-        assert!(!rendered.contains('\n'), "neko compact must be single-line for {state:?}");
+        assert!(rendered.len() <= 1, "neko compact must be at most one line for {state:?}");
     }
 }
 

@@ -791,7 +791,12 @@ impl<'a> Application<'a> {
                 let preset = self.state.user_avatar.clone();
                 for size in [AvatarSize::Compact, AvatarSize::Normal, AvatarSize::Expressive] {
                     let label = format!("[{size:?}]");
-                    let art = self.avatar_manager.render(&preset, AvatarState::Online, size);
+                    let art_spans = self.avatar_manager.render(&preset, AvatarState::Online, size);
+                    let art = art_spans
+                        .iter()
+                        .map(|spans| spans.0.iter().map(|s| s.content.as_ref()).collect::<String>())
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     self.state.add_system_info_message(format!("{}\n{}", label, art));
                 }
             }

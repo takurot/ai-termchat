@@ -25,28 +25,31 @@ pub fn draw_peers_panel(
         vec![Spans::from(Span::styled("Peers", Style::default().add_modifier(Modifier::BOLD)))];
 
     // Local user
-    let local_av =
+    let local_av_lines =
         avatar_manager.render(&state.user_avatar, AvatarState::Online, AvatarSize::Compact);
-    lines.push(Spans::from(vec![
-        Span::styled(local_av, Style::default().fg(Color::Green)),
-        Span::raw(" "),
-        Span::styled(
-            truncate(state.local_user_name(), 10),
-            Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    let local_av = local_av_lines.first().cloned().unwrap_or_default();
+
+    let mut local_user_spans = local_av.0;
+    local_user_spans.push(Span::raw(" "));
+    local_user_spans.push(Span::styled(
+        truncate(state.local_user_name(), 10),
+        Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+    ));
+    lines.push(Spans::from(local_user_spans));
 
     let remote_peers = state.peer_info_list();
     let remote_peer_count = remote_peers.len();
 
     for (peer_name, avatar_preset) in remote_peers {
         let preset = if avatar_preset.is_empty() { "human_default" } else { &avatar_preset };
-        let av = avatar_manager.render(preset, AvatarState::Online, AvatarSize::Compact);
-        lines.push(Spans::from(vec![
-            Span::styled(av, Style::default().fg(Color::Green)),
-            Span::raw(" "),
-            Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)),
-        ]));
+        let av_lines = avatar_manager.render(preset, AvatarState::Online, AvatarSize::Compact);
+        let av = av_lines.first().cloned().unwrap_or_default();
+
+        let mut peer_spans = av.0;
+        peer_spans.push(Span::raw(" "));
+        peer_spans
+            .push(Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)));
+        lines.push(Spans::from(peer_spans));
     }
 
     if remote_peer_count == 0 {
