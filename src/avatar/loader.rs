@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use tui::text::{Span, Spans};
+use tui::text::Spans;
 
 use super::builtin::{ai_default, all_builtins};
 use super::{AvatarPlugin, AvatarSize, AvatarState};
@@ -135,6 +135,7 @@ impl AvatarPlugin for ExternalPlugin {
 
 /// A very basic ANSI parser that converts a string into Spans.
 /// Currently just strips ANSI codes and splits by line.
+#[cfg(feature = "avatar-ffi")]
 fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
     input
         .lines()

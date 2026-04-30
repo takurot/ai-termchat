@@ -65,8 +65,7 @@ pub fn colors_to_spans(colors: Vec<Vec<Color>>) -> Vec<Spans<'static>> {
 
     for y in (0..height).step_by(2) {
         let mut line = Vec::new();
-        for x in 0..width {
-            let top = colors[y][x];
+        for (x, &top) in colors[y].iter().enumerate().take(width) {
             let bottom = if y + 1 < height { colors[y + 1][x] } else { Color::Reset };
 
             match (top, bottom) {

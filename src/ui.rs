@@ -149,7 +149,7 @@ fn draw_messages_panel(
                         Span::styled(&message.user, Style::default().fg(color)),
                         Span::styled(": ", Style::default().fg(color)),
                     ];
-                    ui_message.extend(parse_content(content, theme));
+                    ui_message.extend(parse_content(content, theme, state.local_user_name()));
                     vec![Spans::from(ui_message)]
                 }
                 MessageType::AiText(content) => vec![Spans::from(vec![
@@ -251,7 +251,7 @@ fn add_progress_bar<'a>(
     ]
 }
 
-fn parse_content<'a>(content: &'a str, theme: &Theme) -> Vec<Span<'a>> {
+fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> Vec<Span<'a>> {
     if content.starts_with(CommandManager::COMMAND_PREFIX) {
         content
             .split_whitespace()
@@ -265,7 +265,52 @@ fn parse_content<'a>(content: &'a str, theme: &Theme) -> Vec<Span<'a>> {
             })
             .collect()
     } else {
-        vec![Span::raw(content)]
+        let mut spans = Vec::new();
+        let mut last_pos = 0;
+
+        for (index, _) in content.match_indices('@') {
+            if index < last_pos {
+                continue;
+            }
+
+            // Push text before '@'
+            if index > last_pos {
+                spans.push(Span::raw(&content[last_pos..index]));
+            }
+
+            // Find the end of the mention (next whitespace or end of string)
+            let remaining = &content[index..];
+            let end_offset = remaining
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(remaining.len());
+            
+            let mention = &remaining[..end_offset];
+            let name_with_punctuation = &mention[1..];
+            
+            // Extract the actual name by trimming trailing punctuation
+            let name = name_with_punctuation.trim_end_matches(|c: char| !c.is_alphanumeric());
+            let punctuation_offset = 1 + name.len();
+            
+            let style = if name == local_user_name {
+                Style::default().fg(theme.mention_me_color)
+            } else if name == "ops-ai" {
+                Style::default().fg(Color::LightCyan)
+            } else {
+                Style::default().fg(theme.mention_other_color)
+            };
+
+            spans.push(Span::styled(&remaining[..punctuation_offset], style));
+            last_pos = index + punctuation_offset;
+        }
+
+        if last_pos < content.len() {
+            spans.push(Span::raw(&content[last_pos..]));
+        }
+
+        if spans.is_empty() && !content.is_empty() {
+            spans.push(Span::raw(content));
+        }
+        spans
     }
 }
 
