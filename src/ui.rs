@@ -280,17 +280,15 @@ fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> 
 
             // Find the end of the mention (next whitespace or end of string)
             let remaining = &content[index..];
-            let end_offset = remaining
-                .find(|c: char| c.is_whitespace())
-                .unwrap_or(remaining.len());
-            
+            let end_offset = remaining.find(|c: char| c.is_whitespace()).unwrap_or(remaining.len());
+
             let mention = &remaining[..end_offset];
             let name_with_punctuation = &mention[1..];
-            
+
             // Extract the actual name by trimming trailing punctuation
             let name = name_with_punctuation.trim_end_matches(|c: char| !c.is_alphanumeric());
             let punctuation_offset = 1 + name.len();
-            
+
             let style = if name == local_user_name {
                 Style::default().fg(theme.mention_me_color)
             } else if name == "ops-ai" {

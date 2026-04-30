@@ -794,9 +794,7 @@ impl<'a> Application<'a> {
                     let art_spans = self.avatar_manager.render(&preset, AvatarState::Online, size);
                     let art = art_spans
                         .iter()
-                        .map(|spans| {
-                            spans.0.iter().map(|s| s.content.as_ref()).collect::<String>()
-                        })
+                        .map(|spans| spans.0.iter().map(|s| s.content.as_ref()).collect::<String>())
                         .collect::<Vec<_>>()
                         .join("\n");
                     self.state.add_system_info_message(format!("{}\n{}", label, art));

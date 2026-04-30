@@ -47,7 +47,8 @@ pub fn draw_peers_panel(
 
         let mut peer_spans = av.0;
         peer_spans.push(Span::raw(" "));
-        peer_spans.push(Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)));
+        peer_spans
+            .push(Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)));
         lines.push(Spans::from(peer_spans));
     }
 
