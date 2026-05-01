@@ -2,16 +2,21 @@
 
 set -euo pipefail
 
-DEV_AGENT_FAMILY="${DEV_AGENT_FAMILY:-opencode}"
+DEV_AGENT_FAMILY="${DEV_AGENT_FAMILY:-codex}"
 DEV_PLAN_AGENT_FAMILY="${DEV_PLAN_AGENT_FAMILY:-codex}"
 DEV_IMPL_AGENT_FAMILY="${DEV_IMPL_AGENT_FAMILY:-$DEV_AGENT_FAMILY}"
 DEV_VERIFY_AGENT_FAMILY="${DEV_VERIFY_AGENT_FAMILY:-$DEV_IMPL_AGENT_FAMILY}"
 DEV_REVIEW_AGENT_FAMILY="${DEV_REVIEW_AGENT_FAMILY:-codex}"
 DEV_E2E_AGENT_FAMILY="${DEV_E2E_AGENT_FAMILY:-codex}"
-DEV_RELEASE_AGENT_FAMILY="${DEV_RELEASE_AGENT_FAMILY:-opencode}"
+DEV_RELEASE_AGENT_FAMILY="${DEV_RELEASE_AGENT_FAMILY:-$DEV_AGENT_FAMILY}"
 DEV_CI_AGENT_FAMILY="${DEV_CI_AGENT_FAMILY:-codex}"
 DEV_SCRIPT_NAME="${DEV_SCRIPT_NAME:-script/dev.sh}"
 DEV_DRY_RUN="${DEV_DRY_RUN:-0}"
+DEV_AGENT_TIMEOUT_SECS="${DEV_AGENT_TIMEOUT_SECS:-0}"
+DEV_OPENCODE_PERMISSION_MODE="${DEV_OPENCODE_PERMISSION_MODE:-prompt}"
+DEV_OPENCODE_SKIP_PERMISSIONS="${DEV_OPENCODE_SKIP_PERMISSIONS:-0}"
+DEV_WORKFLOW_DIR="${DEV_WORKFLOW_DIR:-.dev-workflow}"
+DEV_WORKFLOW_LOG_DIR="${DEV_WORKFLOW_LOG_DIR:-$DEV_WORKFLOW_DIR/logs}"
 
 default_skill_dir() {
   if [ -d ".agents/skills" ]; then
@@ -89,10 +94,13 @@ SKILL_SHIP="$PRIMARY_SKILL_DIR/ship-release/SKILL.md"
 NOTES_FILE=".dev-task-notes.md"
 CHECKPOINT_FILE=".dev-task-checkpoint"
 E2E_REPORT_FILE=".dev-e2e-report.md"
+EDIT_SCOPE_FILE="$DEV_WORKFLOW_DIR/allowed-edit-paths.txt"
+STATUS_FILE="$DEV_WORKFLOW_DIR/status.tsv"
 REVIEW_FILE=""
 PR_NUMBER=""
 PR_URL=""
 VERDICT=""
+AGENT_LOG_SEQUENCE=0
 
 # チェックポイントから再開位置を決定
 RESUME_FROM=0
@@ -108,6 +116,33 @@ fi
 
 is_dry_run() {
   [ "$DEV_DRY_RUN" = "1" ]
+}
+
+ensure_workflow_dir() {
+  mkdir -p "$DEV_WORKFLOW_LOG_DIR"
+}
+
+timestamp() {
+  date '+%Y-%m-%dT%H:%M:%S%z'
+}
+
+record_status() {
+  local component="$1"
+  local status="$2"
+  local detail="$3"
+  local log_file="${4:-}"
+
+  ensure_workflow_dir
+  if [ ! -f "$STATUS_FILE" ]; then
+    printf 'timestamp\tcomponent\tstatus\tdetail\tlog\n' >"$STATUS_FILE"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(timestamp)" "$component" "$status" "$detail" "$log_file" >>"$STATUS_FILE"
+}
+
+opencode_permission_args() {
+  if [ "$DEV_OPENCODE_PERMISSION_MODE" = "allow" ] || [ "$DEV_OPENCODE_SKIP_PERMISSIONS" = "1" ]; then
+    printf '%s\n' "--dangerously-skip-permissions"
+  fi
 }
 
 build_codex_review_prompt() {
@@ -176,6 +211,21 @@ require_agent_family() {
       ;;
     *)
       echo "ERROR: unsupported agent family: $agent_family" >&2
+      exit 1
+      ;;
+  esac
+}
+
+require_valid_config() {
+  if ! [[ "$DEV_AGENT_TIMEOUT_SECS" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: DEV_AGENT_TIMEOUT_SECS must be a non-negative integer: $DEV_AGENT_TIMEOUT_SECS" >&2
+    exit 1
+  fi
+
+  case "$DEV_OPENCODE_PERMISSION_MODE" in
+    prompt|allow) ;;
+    *)
+      echo "ERROR: DEV_OPENCODE_PERMISSION_MODE must be 'prompt' or 'allow': $DEV_OPENCODE_PERMISSION_MODE" >&2
       exit 1
       ;;
   esac
@@ -260,7 +310,11 @@ describe_exec_command() {
       printf 'codex exec -m "%s" --sandbox workspace-write -' "$model_name"
       ;;
     opencode)
-      printf 'opencode run -m "%s" --dir "%s" -- "<prompt>"' "$model_name" "$PWD"
+      if [ -n "$(opencode_permission_args)" ]; then
+        printf 'opencode run -m "%s" --dir "%s" %s -- "<prompt>"' "$model_name" "$PWD" "$(opencode_permission_args)"
+      else
+        printf 'opencode run -m "%s" --dir "%s" -- "<prompt>"' "$model_name" "$PWD"
+      fi
       ;;
   esac
 }
@@ -277,9 +331,85 @@ describe_review_command() {
       printf 'codex review -c model="%s" -' "$model_name"
       ;;
     opencode)
-      printf 'opencode run -m "%s" --dir "%s" -- "<review prompt>"' "$model_name" "$PWD"
+      if [ -n "$(opencode_permission_args)" ]; then
+        printf 'opencode run -m "%s" --dir "%s" %s -- "<review prompt>"' "$model_name" "$PWD" "$(opencode_permission_args)"
+      else
+        printf 'opencode run -m "%s" --dir "%s" -- "<review prompt>"' "$model_name" "$PWD"
+      fi
       ;;
   esac
+}
+
+next_agent_log_file() {
+  local kind="$1"
+  local agent_family="$2"
+
+  ensure_workflow_dir
+  AGENT_LOG_SEQUENCE=$((AGENT_LOG_SEQUENCE + 1))
+  printf '%s/%03d-%s-%s-%s.log' \
+    "$DEV_WORKFLOW_LOG_DIR" \
+    "$AGENT_LOG_SEQUENCE" \
+    "$kind" \
+    "$agent_family" \
+    "$(date '+%Y%m%d-%H%M%S')"
+}
+
+run_with_timeout() {
+  local timeout_secs="$1"
+  shift
+
+  if [ "$timeout_secs" = "0" ]; then
+    "$@"
+    return $?
+  fi
+
+  "$@" &
+  local command_pid=$!
+  local timeout_marker="$DEV_WORKFLOW_DIR/timeout-$command_pid"
+
+  (
+    sleep "$timeout_secs"
+    if kill -0 "$command_pid" >/dev/null 2>&1; then
+      : >"$timeout_marker"
+      kill -TERM "$command_pid" >/dev/null 2>&1 || true
+      sleep 5
+      kill -KILL "$command_pid" >/dev/null 2>&1 || true
+    fi
+  ) &
+  local watchdog_pid=$!
+
+  wait "$command_pid"
+  local status=$?
+  kill "$watchdog_pid" >/dev/null 2>&1 || true
+  wait "$watchdog_pid" 2>/dev/null || true
+
+  if [ -f "$timeout_marker" ]; then
+    rm -f "$timeout_marker"
+    return 124
+  fi
+
+  return "$status"
+}
+
+run_logged_command() {
+  local log_file="$1"
+  shift
+
+  {
+    printf 'Command started: %s\n' "$(timestamp)"
+    printf 'Timeout seconds: %s\n' "$DEV_AGENT_TIMEOUT_SECS"
+    printf 'Command:'
+    printf ' %q' "$@"
+    printf '\n\n'
+  } >>"$log_file"
+
+  run_with_timeout "$DEV_AGENT_TIMEOUT_SECS" "$@" > >(tee -a "$log_file") 2> >(tee -a "$log_file" >&2)
+}
+
+agent_log_has_permission_rejection() {
+  local log_file="$1"
+
+  grep -Eiq 'auto-?reject|permission prompt|permission request|permissions? rejected|not approved|requires approval' "$log_file"
 }
 
 run_agent_exec() {
@@ -288,6 +418,10 @@ run_agent_exec() {
   local allowed_tools="$3"
   local prompt_text
   local prepared_prompt
+  local log_file
+  local status
+  local prompt_file
+  local opencode_extra_args=()
 
   prompt_text=$(cat)
   prepared_prompt=$(prepare_prompt_for_agent "$agent_family" "$allowed_tools" "$prompt_text")
@@ -297,27 +431,64 @@ run_agent_exec() {
     return 0
   fi
 
+  log_file=$(next_agent_log_file "exec" "$agent_family")
+  prompt_file=$(mktemp "${TMPDIR:-/tmp}/dev-workflow-prompt.XXXXXX")
+  printf '%s' "$prepared_prompt" >"$prompt_file"
+
+  set +e
   case "$agent_family" in
     claude)
       if [ -n "$allowed_tools" ]; then
-        claude -p --model "$model_name" --allowedTools "$allowed_tools" -- "$prepared_prompt"
+        run_logged_command "$log_file" claude -p --model "$model_name" --allowedTools "$allowed_tools" -- "$prepared_prompt"
       else
-        claude -p --model "$model_name" -- "$prepared_prompt"
+        run_logged_command "$log_file" claude -p --model "$model_name" -- "$prepared_prompt"
       fi
+      status=$?
       ;;
     codex)
-      printf '%s' "$prepared_prompt" | codex exec -m "$model_name" --sandbox workspace-write -
+      run_logged_command "$log_file" codex exec -m "$model_name" --sandbox workspace-write - <"$prompt_file"
+      status=$?
       ;;
     opencode)
-      opencode run -m "$model_name" --dir "$PWD" -- "$prepared_prompt"
+      while IFS= read -r arg; do
+        [ -n "$arg" ] && opencode_extra_args+=("$arg")
+      done < <(opencode_permission_args)
+      run_logged_command "$log_file" opencode run -m "$model_name" --dir "$PWD" "${opencode_extra_args[@]}" -- "$prepared_prompt"
+      status=$?
       ;;
   esac
+  set -e
+  rm -f "$prompt_file"
+
+  if agent_log_has_permission_rejection "$log_file"; then
+    echo "ERROR: agent permission prompt/rejection detected. Not checkpointing this step. See $log_file" >&2
+    record_status "agent-exec:$agent_family" "permission_rejected" "permission prompt or rejection detected" "$log_file"
+    return 126
+  fi
+
+  if [ "$status" -eq 124 ]; then
+    echo "ERROR: agent command timed out after ${DEV_AGENT_TIMEOUT_SECS}s. See $log_file" >&2
+    record_status "agent-exec:$agent_family" "timeout" "timeout after ${DEV_AGENT_TIMEOUT_SECS}s" "$log_file"
+    return "$status"
+  fi
+
+  if [ "$status" -ne 0 ]; then
+    echo "ERROR: agent command failed with exit code $status. See $log_file" >&2
+    record_status "agent-exec:$agent_family" "failed" "exit $status" "$log_file"
+    return "$status"
+  fi
+
+  record_status "agent-exec:$agent_family" "ok" "completed" "$log_file"
 }
 
 run_agent_review() {
   local agent_family="$1"
   local model_name="$2"
   local prompt_text
+  local log_file
+  local prompt_file
+  local status
+  local opencode_extra_args=()
 
   prompt_text=$(cat)
 
@@ -326,17 +497,50 @@ run_agent_review() {
     return 0
   fi
 
+  log_file=$(next_agent_log_file "review" "$agent_family")
+  prompt_file=$(mktemp "${TMPDIR:-/tmp}/dev-workflow-review.XXXXXX")
+  printf '%s' "$prompt_text" >"$prompt_file"
+
+  set +e
   case "$agent_family" in
     claude)
-      claude -p --model "$model_name" -- "$prompt_text"
+      run_logged_command "$log_file" claude -p --model "$model_name" -- "$prompt_text"
+      status=$?
       ;;
     codex)
-      printf '%s' "$prompt_text" | codex review -c "model=\"$model_name\"" -
+      run_logged_command "$log_file" codex review -c "model=\"$model_name\"" - <"$prompt_file"
+      status=$?
       ;;
     opencode)
-      opencode run -m "$model_name" --dir "$PWD" -- "$prompt_text"
+      while IFS= read -r arg; do
+        [ -n "$arg" ] && opencode_extra_args+=("$arg")
+      done < <(opencode_permission_args)
+      run_logged_command "$log_file" opencode run -m "$model_name" --dir "$PWD" "${opencode_extra_args[@]}" -- "$prompt_text"
+      status=$?
       ;;
   esac
+  set -e
+  rm -f "$prompt_file"
+
+  if agent_log_has_permission_rejection "$log_file"; then
+    echo "ERROR: review agent permission prompt/rejection detected. Not checkpointing this step. See $log_file" >&2
+    record_status "agent-review:$agent_family" "permission_rejected" "permission prompt or rejection detected" "$log_file"
+    return 126
+  fi
+
+  if [ "$status" -eq 124 ]; then
+    echo "ERROR: review agent timed out after ${DEV_AGENT_TIMEOUT_SECS}s. See $log_file" >&2
+    record_status "agent-review:$agent_family" "timeout" "timeout after ${DEV_AGENT_TIMEOUT_SECS}s" "$log_file"
+    return "$status"
+  fi
+
+  if [ "$status" -ne 0 ]; then
+    echo "ERROR: review agent failed with exit code $status. See $log_file" >&2
+    record_status "agent-review:$agent_family" "failed" "exit $status" "$log_file"
+    return "$status"
+  fi
+
+  record_status "agent-review:$agent_family" "ok" "completed" "$log_file"
 }
 
 print_runtime_summary() {
@@ -356,6 +560,10 @@ print_runtime_summary() {
   echo "Model (e2e): $MODEL_E2E"
   echo "Model (release): $MODEL_RELEASE"
   echo "Model (ci): $MODEL_CI"
+  echo "Agent timeout seconds: $DEV_AGENT_TIMEOUT_SECS"
+  echo "OpenCode permission mode: $DEV_OPENCODE_PERMISSION_MODE"
+  echo "Workflow log directory: $DEV_WORKFLOW_LOG_DIR"
+  echo "Workflow status file: $STATUS_FILE"
 
   if is_dry_run; then
     echo "Dry run: enabled"
@@ -380,6 +588,73 @@ EOF
 
 checkpoint() {
   echo "$1" > "$CHECKPOINT_FILE"
+  record_status "checkpoint" "ok" "step $1 completed" ""
+}
+
+changed_task_files() {
+  git status --short --untracked-files=all 2>/dev/null \
+    | grep -Ev '^[? MADRCU]{2} \.dev-task-|^[? MADRCU]{2} \.dev-e2e-report\.md|^[? MADRCU]{2} \.dev-workflow/' \
+    || true
+}
+
+require_task_changes_after_implementation() {
+  if is_dry_run; then
+    return 0
+  fi
+
+  if grep -q '^NO_CHANGES_REQUIRED$' "$NOTES_FILE" 2>/dev/null; then
+    record_status "implementation" "ok" "agent declared NO_CHANGES_REQUIRED" ""
+    return 0
+  fi
+
+  if [ -z "$(changed_task_files)" ]; then
+    echo "ERROR: implementation step completed with no task file changes." >&2
+    echo "If no code changes are required, add a line containing exactly NO_CHANGES_REQUIRED to $NOTES_FILE." >&2
+    record_status "implementation" "no_op" "no task file changes after implementation" ""
+    exit 1
+  fi
+
+  record_status "implementation" "ok" "task file changes detected" ""
+}
+
+write_edit_scope() {
+  if is_dry_run; then
+    return 0
+  fi
+
+  ensure_workflow_dir
+  {
+    git diff --name-only HEAD 2>/dev/null || true
+    git ls-files --others --exclude-standard 2>/dev/null || true
+  } | grep -Ev '^(\.dev-task-|\.dev-e2e-report\.md|\.dev-workflow/)' | sort -u >"$EDIT_SCOPE_FILE"
+
+  if [ ! -s "$EDIT_SCOPE_FILE" ]; then
+    printf '(no task files recorded)\n' >"$EDIT_SCOPE_FILE"
+  fi
+
+  record_status "edit-scope" "ok" "wrote $EDIT_SCOPE_FILE" ""
+}
+
+fail_on_environment_blocker() {
+  local source_file="$1"
+
+  if is_dry_run || [ ! -f "$source_file" ]; then
+    return 0
+  fi
+
+  if grep -Eiq 'ENVIRONMENT[ _-]+BLOCKER' "$source_file"; then
+    echo "ERROR: environment blocker reported in $source_file. Not checkpointing this step." >&2
+    record_status "environment" "blocker" "reported in $source_file" ""
+    exit 2
+  fi
+}
+
+edit_scope_text() {
+  if [ -f "$EDIT_SCOPE_FILE" ]; then
+    cat "$EDIT_SCOPE_FILE"
+  else
+    printf '(edit scope not established yet)\n'
+  fi
 }
 
 inject_issue_context() {
@@ -421,7 +696,7 @@ EOF
 }
 
 cleanup_files() {
-  : # intentionally empty — NOTES_FILE is removed only on success (line ~909)
+  : # intentionally empty; temporary files are removed only after successful completion
 }
 
 trap cleanup_files EXIT
@@ -432,6 +707,7 @@ if [ -z "$PLAN" ] || [ -z "$TASK" ]; then
 fi
 
 require_file "$PLAN"
+require_valid_config
 
 require_file "$SKILL_TDD"
 require_file "$SKILL_VERIFY"
@@ -513,6 +789,9 @@ CI checks are failing on PR #$PR_NUMBER ($label, attempt $attempt).
 Failing checks:
 $CI_FAILURES
 
+Allowed edit scope:
+$(edit_scope_text)
+
 Prior fix history (avoid repeating same approach):
 $(grep -A5 "CI Fix Attempt" "$NOTES_FILE" 2>/dev/null | tail -20 || echo "none")
 
@@ -525,13 +804,19 @@ Steps:
 3. Fix the issues — do not add new features, fix failures only
 4. Run the verification loop locally to confirm fixes pass
 5. Make the smallest fix that addresses the failure.
-6. Stage and commit:
+6. Do not edit outside the allowed scope unless CI proves the failure is directly
+   caused by these task changes; if so, update $EDIT_SCOPE_FILE and explain why.
+7. If the failure is caused by CI environment, credentials, sandbox limits, or
+   external services, report ENVIRONMENT BLOCKER and stop.
+8. Stage and commit:
    git add -A && git commit -m 'fix(ci): fix CI failures [$label attempt $attempt]'
-7. Push: git push
+9. Push: git push
 
 Focus strictly on CI failures. Do not change unrelated code.
 EOF
 
+    fail_on_environment_blocker "$NOTES_FILE"
+    write_edit_scope
     echo "  修正をプッシュしました。CI の起動を待ちます (${CI_PUSH_SETTLE_DELAY:-30}s)..."
     sleep "${CI_PUSH_SETTLE_DELAY:-30}"
   done
@@ -641,7 +926,11 @@ Follow the TDD cycle strictly:
 Do NOT create documentation files.
 Do NOT write implementation before tests.
 Keep changes surgical and limited to the task.
+If no code changes are required, write a line containing exactly NO_CHANGES_REQUIRED
+to $NOTES_FILE and explain why.
 EOF
+require_task_changes_after_implementation
+write_edit_scope
 checkpoint 2
 else
   echo ""
@@ -653,6 +942,9 @@ echo ""
 echo "==> [3/13] クリーンアップ"
 run_agent_exec "$DEV_IMPL_AGENT_FAMILY" "$MODEL_CLEANUP" "" <<EOF
 Review all files changed since the last commit (git diff HEAD).
+Allowed edit scope:
+$(edit_scope_text)
+
 Remove test slop:
 - Tests verifying language/framework behavior (not business logic)
 - Overly defensive runtime checks for impossible states
@@ -663,7 +955,10 @@ Remove test slop:
 Keep all business logic tests and edge case coverage.
 Run the test suite after cleanup and confirm it still passes.
 Do not change architecture or add new behavior.
+Do not edit outside the allowed scope unless a verification command proves the
+failure is directly caused by these task changes; if so, update $EDIT_SCOPE_FILE.
 EOF
+write_edit_scope
 checkpoint 3
 else
   echo ""
@@ -679,8 +974,18 @@ $(load_skill "$SKILL_VERIFY")
 ---
 Run all verification phases and fix deterministic local failures.
 Do not add new features. Fix failures only.
+Allowed edit scope:
+$(edit_scope_text)
+
+If a failure is caused by sandbox, OS permissions, missing local services,
+network/authentication, or another environment constraint, report it as
+ENVIRONMENT BLOCKER in $NOTES_FILE and do not rewrite unrelated code or tests.
+Do not edit outside the allowed scope unless the failure is directly caused by
+these task changes; if so, update $EDIT_SCOPE_FILE and explain why.
 Output a VERIFICATION REPORT with PASS/FAIL per phase.
 EOF
+fail_on_environment_blocker "$NOTES_FILE"
+write_edit_scope
 checkpoint 4
 else
   echo ""
@@ -696,6 +1001,8 @@ $(load_skill "$SKILL_E2E")
 ---
 Task: $TASK
 Read $PLAN for context.
+Allowed edit scope:
+$(edit_scope_text)
 
 This project is a Rust terminal application (triadchat). There is no browser UI.
 E2E tests run via cargo, not Playwright.
@@ -719,6 +1026,9 @@ Run only the E2E / integration tests relevant to this task:
    # add --features ui-test if the test file requires it
 
 Capture the full output including any FAILED lines and panic messages.
+If failures are caused by sandbox, OS permissions, missing local services, or
+network/authentication, mark the report as ENVIRONMENT BLOCKER instead of FAIL
+and do not edit unrelated code.
 
 ## Output
 
@@ -765,6 +1075,8 @@ $(load_skill "$SKILL_E2E")
 E2E tests failed on the first run. Read the failure report at $E2E_REPORT_FILE.
 
 This project is a Rust terminal application. Failures are in cargo integration tests.
+Allowed edit scope:
+$(edit_scope_text)
 
 Steps:
 1. Read each failure in the ## Failures section
@@ -774,6 +1086,8 @@ Steps:
 5. Re-run the failing tests to confirm they pass:
    cargo test --test <test_file> <test_name> 2>&1
 6. If the fix causes other tests to fail, revert and do not proceed
+7. Do not edit outside the allowed scope unless the failure is directly caused
+   by these task changes; if so, update $EDIT_SCOPE_FILE and explain why.
 
 Then overwrite $E2E_REPORT_FILE with the updated result using the same format:
    ## Status
@@ -825,6 +1139,8 @@ EOF3
 
   echo "E2E ステータス: $E2E_STATUS"
 fi
+fail_on_environment_blocker "$E2E_REPORT_FILE"
+write_edit_scope
 checkpoint 5
 else
   echo ""
@@ -846,6 +1162,8 @@ $SECURITY_PROMPT
 Task: $TASK — Security review before commit.
 
 Review all changes since the last commit (git diff HEAD):
+Allowed edit scope:
+$(edit_scope_text)
 
 MANDATORY CHECKS:
 - [ ] No hardcoded secrets, API keys, or tokens
@@ -863,6 +1181,7 @@ If any CRITICAL or HIGH issue is found:
 
 If clean, output: 'Security review PASSED — no critical/high issues found.'
 EOF
+write_edit_scope
 checkpoint 6
 else
   echo ""
@@ -1031,14 +1350,18 @@ $(load_skill "$SKILL_VERIFY")
 
 ---
 Read the code review findings at $REVIEW_FILE.
+Allowed edit scope:
+$(edit_scope_text)
 
 Address ALL CRITICAL and HIGH findings:
 1. For each finding: read the file, understand the issue, apply the fix
 2. After all fixes: run the verification loop (build, types, lint, tests)
-3. Stage fixed files: git add -A
-4. Create a follow-up commit:
+3. Do not edit outside the allowed scope unless the finding is directly caused
+   by these task changes; if so, update $EDIT_SCOPE_FILE and explain why.
+4. Stage fixed files: git add -A
+5. Create a follow-up commit:
    fix(review): address code review findings from PR #$PR_NUMBER
-5. Push: git push
+6. Push: git push
 
 Then post a follow-up comment summarizing what was fixed:
   gh pr comment $PR_NUMBER --body '## Review Fixes
@@ -1049,6 +1372,7 @@ Then post a follow-up comment summarizing what was fixed:
   ...'
 EOF
 
+  write_edit_scope
   wait_for_ci_green "レビュー対応後"
   checkpoint 12
   echo ""

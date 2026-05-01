@@ -55,11 +55,11 @@ Each role can be set to `claude`, `codex`, or `opencode`.
 | Variable | Default | Role |
 |---|---|---|
 | `DEV_PLAN_AGENT_FAMILY` | `codex` | Steps 0, 1, 7 (research + eval) |
-| `DEV_IMPL_AGENT_FAMILY` | `opencode` | Steps 2, 3, 12 (implementation) |
-| `DEV_VERIFY_AGENT_FAMILY` | `opencode` | Step 4 (verification) |
+| `DEV_IMPL_AGENT_FAMILY` | `codex` | Steps 2, 3, 12 (implementation) |
+| `DEV_VERIFY_AGENT_FAMILY` | `codex` | Step 4 (verification) |
 | `DEV_REVIEW_AGENT_FAMILY` | `codex` | Steps 6, 10, 11 (review) |
 | `DEV_E2E_AGENT_FAMILY` | `codex` | Step 5 (E2E tests) |
-| `DEV_RELEASE_AGENT_FAMILY` | `opencode` | Steps 8, 11, post (release + learning) |
+| `DEV_RELEASE_AGENT_FAMILY` | `codex` | Steps 8, 11, post (release + learning) |
 | `DEV_CI_AGENT_FAMILY` | `codex` | CI fix loop inside step 9 |
 
 ### Model overrides
@@ -84,10 +84,28 @@ Default models per family: `claude` → `sonnet`, `codex` → `gpt-5.4`, `openco
 | Variable | Default | Description |
 |---|---|---|
 | `DEV_DRY_RUN` | `0` | Set to `1` to print commands without invoking agents or `gh` |
+| `DEV_AGENT_TIMEOUT_SECS` | `0` | Per-agent timeout in seconds; `0` disables timeout |
+| `DEV_OPENCODE_PERMISSION_MODE` | `prompt` | Set to `allow` to pass `--dangerously-skip-permissions` to `opencode run` |
+| `DEV_OPENCODE_SKIP_PERMISSIONS` | `0` | Backward-compatible boolean form for OpenCode auto-approval |
+| `DEV_WORKFLOW_DIR` | `.dev-workflow` | Directory for structured workflow metadata |
+| `DEV_WORKFLOW_LOG_DIR` | `.dev-workflow/logs` | Directory for per-agent stdout/stderr logs |
 | `DEV_SKILL_DIR` | auto-detected | Override skill file root directory |
 | `DEV_SCRIPT_NAME` | `script/dev.sh` | Script name shown in usage output |
 | `CI_MAX_ATTEMPTS` | `10` | Maximum CI fix attempts per monitor loop |
 | `CI_PUSH_SETTLE_DELAY` | `30` | Seconds to wait after pushing a CI fix before re-checking |
+
+### OpenCode permission prompts
+
+By default, OpenCode keeps its normal permission prompt behavior. To auto-approve
+permissions for scripted workflow runs, set:
+
+```bash
+DEV_OPENCODE_PERMISSION_MODE=allow scripts/dev-workflow.sh docs/PLAN.md "Task"
+```
+
+This passes `--dangerously-skip-permissions` to `opencode run`. Use it only in a
+trusted worktree because OpenCode will auto-approve permissions that are not
+explicitly denied.
 
 ## Required skill files
 
@@ -111,6 +129,10 @@ Skill directory resolution order: `.agents/skills/` → `.agent/skills/` → `~/
 
 The script writes `.dev-task-checkpoint` after each completed step. If interrupted, re-running the same command resumes from the next step automatically. Delete `.dev-task-checkpoint` to force a full restart.
 
+Agent steps are not checkpointed when the agent command fails, times out, emits a
+permission prompt/rejection marker, or when the implementation step exits without
+task file changes and without a `NO_CHANGES_REQUIRED` marker in `.dev-task-notes.md`.
+
 ## Temporary files
 
 | File | Purpose | Lifetime |
@@ -118,4 +140,15 @@ The script writes `.dev-task-checkpoint` after each completed step. If interrupt
 | `.dev-task-notes.md` | Shared scratchpad passed to all agents | Deleted on successful completion |
 | `.dev-task-checkpoint` | Last completed step number | Deleted on successful completion |
 | `.dev-e2e-report.md` | E2E test report with root cause analysis (if failed) | Deleted on success; persists on failure for diagnosis |
+| `.dev-workflow/status.tsv` | Structured status records for agent runs, checkpoints, blockers, and edit scope | Persists after run |
+| `.dev-workflow/logs/*.log` | Per-agent stdout/stderr plus command metadata | Persists after run |
+| `.dev-workflow/allowed-edit-paths.txt` | Files changed by the task; verification/remediation prompts must stay in this scope | Persists after run |
 | `review-<PR>.md` | Raw code review output | Persists after run for reference |
+
+## Self-test
+
+Run the focused shell tests for workflow guardrails with:
+
+```bash
+scripts/test-dev-workflow.sh
+```
