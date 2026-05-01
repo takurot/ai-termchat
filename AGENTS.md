@@ -42,7 +42,21 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
-## 4. Goal-Driven Execution
+## 4. Development Automation
+
+Use `scripts/dev-workflow.sh` to implement planned tasks autonomously. The script runs a 13-step pipeline using AI agents and requires a plan file and task description.
+
+```bash
+scripts/dev-workflow.sh <PLAN.md> "<task>" [issue-number]
+```
+
+- Supply a GitHub issue number as the third argument to inject issue context into the research notes automatically.
+- Set `DEV_DRY_RUN=1` to preview the pipeline without invoking agents.
+- The script checkpoints after each step; re-running the same command resumes from where it left off.
+
+Full reference: `scripts/README.md`.
+
+## 5. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
