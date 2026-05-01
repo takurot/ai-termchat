@@ -93,10 +93,7 @@ impl AvatarManager {
 
 #[cfg(feature = "avatar-ffi")]
 fn is_dylib(path: &std::path::Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("so") | Some("dylib") | Some("dll") => true,
-        _ => false,
-    }
+    matches!(path.extension().and_then(|e| e.to_str()), Some("so") | Some("dylib") | Some("dll"))
 }
 
 /// Wraps a loaded `libloading::Library` as an `AvatarPlugin`.
