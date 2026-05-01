@@ -1,7 +1,8 @@
 use triadchat::ai::parser::parse_ai_payload;
 use triadchat::ai::prompt::{lang_instruction, summary_prompt, todos_prompt, truncate_transcript};
-use triadchat::application::render_ai_payload;
-use triadchat::message::{AiIntent, AiPayload, StructuredOutput, TodoItem};
+use triadchat::application::{Application, Signal};
+use triadchat::config::Config;
+use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
 
 #[test]
 fn language_instruction_supports_supported_languages() {
@@ -89,57 +90,32 @@ fn parser_multiple_metadata_lines_uses_last_value() {
 }
 
 #[test]
-fn render_todo_with_assignee() {
-    let payload = AiPayload {
-        text: "x".into(),
-        intent: AiIntent::Todo,
-        structured: Some(StructuredOutput {
-            todos: vec![TodoItem { text: "foo".into(), assignee: Some("bar".into()) }],
-            ..StructuredOutput::default()
-        }),
-    };
-    assert_eq!(render_ai_payload(&payload), "TODO: foo (bar)");
-}
+fn structured_none_clears_skill_proposals() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+    let node = app.node_handler();
 
-#[test]
-fn render_todo_without_assignee() {
-    let payload = AiPayload {
-        text: "x".into(),
-        intent: AiIntent::Todo,
-        structured: Some(StructuredOutput {
-            todos: vec![TodoItem { text: "foo".into(), assignee: None }],
-            ..StructuredOutput::default()
-        }),
-    };
-    assert_eq!(render_ai_payload(&payload), "TODO: foo");
-}
+    node.signals().send(Signal::AiResponse(
+        AiPayload {
+            text: "suggested".into(),
+            intent: AiIntent::SkillSuggest,
+            structured: Some(StructuredOutput {
+                todos: Vec::new(),
+                decisions: Vec::new(),
+                skill_suggestions: vec!["review-auth".into()],
+                raw_text: None,
+            }),
+        },
+        false,
+    ));
+    app.process_next_event_for_test().unwrap();
+    assert!(!app.state().skill_proposals().is_empty(), "should have proposals");
 
-#[test]
-fn render_decision() {
-    let payload = AiPayload {
-        text: "x".into(),
-        intent: AiIntent::Decision,
-        structured: Some(StructuredOutput {
-            decisions: vec!["auth".into()],
-            ..StructuredOutput::default()
-        }),
-    };
-    assert_eq!(render_ai_payload(&payload), "Decision: auth");
-}
-
-#[test]
-fn render_falls_back_to_text_for_empty_todos() {
-    let payload = AiPayload {
-        text: "fallback text".into(),
-        intent: AiIntent::Todo,
-        structured: Some(StructuredOutput::default()),
-    };
-    assert_eq!(render_ai_payload(&payload), "fallback text");
-}
-
-#[test]
-fn render_returns_text_when_structured_is_none() {
-    let payload =
-        AiPayload { text: "raw text".into(), intent: AiIntent::Clarify, structured: None };
-    assert_eq!(render_ai_payload(&payload), "raw text");
+    node.signals().send(Signal::AiResponse(
+        AiPayload { text: "raw text".into(), intent: AiIntent::Clarify, structured: None },
+        false,
+    ));
+    app.process_next_event_for_test().unwrap();
+    assert!(app.state().skill_proposals().is_empty(), "proposals should be cleared");
 }

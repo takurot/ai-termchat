@@ -1535,7 +1535,7 @@ fn parse_semver_tuple(version: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-pub fn render_ai_payload(payload: &AiPayload) -> String {
+fn render_ai_payload(payload: &AiPayload) -> String {
     if let Some(structured) = &payload.structured {
         match payload.intent {
             AiIntent::Todo if !structured.todos.is_empty() => structured
@@ -1557,5 +1557,67 @@ pub fn render_ai_payload(payload: &AiPayload) -> String {
         }
     } else {
         payload.text.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::message::{AiIntent, AiPayload, StructuredOutput, TodoItem};
+
+    #[test]
+    fn render_todo_with_assignee() {
+        let payload = AiPayload {
+            text: "x".into(),
+            intent: AiIntent::Todo,
+            structured: Some(StructuredOutput {
+                todos: vec![TodoItem { text: "foo".into(), assignee: Some("bar".into()) }],
+                ..StructuredOutput::default()
+            }),
+        };
+        assert_eq!(render_ai_payload(&payload), "TODO: foo (bar)");
+    }
+
+    #[test]
+    fn render_todo_without_assignee() {
+        let payload = AiPayload {
+            text: "x".into(),
+            intent: AiIntent::Todo,
+            structured: Some(StructuredOutput {
+                todos: vec![TodoItem { text: "foo".into(), assignee: None }],
+                ..StructuredOutput::default()
+            }),
+        };
+        assert_eq!(render_ai_payload(&payload), "TODO: foo");
+    }
+
+    #[test]
+    fn render_decision() {
+        let payload = AiPayload {
+            text: "x".into(),
+            intent: AiIntent::Decision,
+            structured: Some(StructuredOutput {
+                decisions: vec!["auth".into()],
+                ..StructuredOutput::default()
+            }),
+        };
+        assert_eq!(render_ai_payload(&payload), "Decision: auth");
+    }
+
+    #[test]
+    fn render_falls_back_to_text_for_empty_todos() {
+        let payload = AiPayload {
+            text: "fallback text".into(),
+            intent: AiIntent::Todo,
+            structured: Some(StructuredOutput::default()),
+        };
+        assert_eq!(render_ai_payload(&payload), "fallback text");
+    }
+
+    #[test]
+    fn render_returns_text_when_structured_is_none() {
+        let payload =
+            AiPayload { text: "raw text".into(), intent: AiIntent::Clarify, structured: None };
+        assert_eq!(render_ai_payload(&payload), "raw text");
     }
 }
