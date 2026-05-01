@@ -160,6 +160,7 @@ trusted_peers = []
 | [docs/IDEA.md](docs/IDEA.md) | Product idea and concept |
 | [docs/SPEC.md](docs/SPEC.md) | Feature specification (v0.3) |
 | [docs/PLAN.md](docs/PLAN.md) | PR-level implementation plan |
+| [scripts/README.md](scripts/README.md) | Multi-agent dev pipeline — automated research → TDD → PR workflow |
 
 ---
 

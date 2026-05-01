@@ -2,6 +2,23 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development automation
+
+`scripts/dev-workflow.sh` runs a 13-step multi-agent pipeline (research → TDD → verification → PR → CI → review) for implementing a planned task autonomously.
+
+```bash
+# Basic
+scripts/dev-workflow.sh docs/PLAN.md "Phase 2.1: task description"
+
+# With GitHub issue for background context
+scripts/dev-workflow.sh docs/PLAN.md "Phase 2.1: task description" 42
+
+# Dry run — prints commands without invoking agents
+DEV_DRY_RUN=1 scripts/dev-workflow.sh docs/PLAN.md "Phase 2.1: task description"
+```
+
+See `scripts/README.md` for the full pipeline reference, environment variables, and skill file requirements.
+
 ## Commands
 
 ```bash
