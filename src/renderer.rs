@@ -1,14 +1,14 @@
 use crate::avatar::loader::AvatarManager;
 use crate::config::Config;
 use crate::state::State;
-use crate::ui::{self};
+use crate::ui;
 use crate::util::Result;
 
-use crossterm::terminal::{self};
-use crossterm::{ExecutableCommand};
+use crossterm::terminal;
+use crossterm::ExecutableCommand;
 
-use tui::{Terminal};
-use tui::backend::{CrosstermBackend};
+use tui::backend::CrosstermBackend;
+use tui::Terminal;
 
 use std::io::Write;
 

@@ -1,8 +1,10 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 
+mod common;
+
+use common::{rendered_messages, write_executable_script};
 use triadchat::application::Application;
 use triadchat::config::Config;
 
@@ -25,15 +27,6 @@ description: Deploy to production
     dir
 }
 
-fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
-    let path = dir.path().join(name);
-    fs::write(&path, body).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
-    path
-}
-
 /// Regression test for issue #4: confirmation prompt must be in English.
 #[test]
 fn skill_confirmation_prompt_is_in_english() {
@@ -44,8 +37,7 @@ fn skill_confirmation_prompt_is_in_english() {
 
     app.handle_input_line_for_test("/skill deploy-prod").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(
         rendered.contains("[deploy-prod] Execute this skill? [y/n]"),
@@ -61,8 +53,11 @@ fn skill_confirmation_prompt_is_in_english() {
 #[test]
 fn skill_running_message_is_in_english() {
     let workspace = create_confirm_skill_workspace();
-    let script =
-        write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'deploy-prod finished'\n");
+    let script = write_executable_script(
+        workspace.path(),
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'deploy-prod finished'\n",
+    );
 
     let mut config = Config::default();
     config.ai.command = Some(script.display().to_string());
@@ -71,8 +66,7 @@ fn skill_running_message_is_in_english() {
     app.handle_input_line_for_test("/skill deploy-prod").unwrap();
     app.handle_confirmation_input_for_test('y').unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(
         rendered.contains("[ops-ai: running /deploy-prod...]"),

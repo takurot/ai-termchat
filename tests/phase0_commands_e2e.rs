@@ -1,31 +1,22 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
 
+mod common;
+
+use common::{config_with_ai_script, rendered_messages, write_executable_script};
 use triadchat::application::Application;
 use triadchat::config::Config;
 use triadchat::state::{AiMode, MessageType};
 
-fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
-    let path = dir.path().join(name);
-    fs::write(&path, body).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
-    path
-}
-
 #[test]
 fn summary_commands_and_auto_intervention_work_end_to_end() {
     let dir = TempDir::new().unwrap();
-    let script = write_script(
-        &dir,
+    let script = write_executable_script(
+        dir.path(),
         "mock-claude.sh",
         "#!/bin/sh\ncase \"$2\" in\n  *TASK:summary*) printf 'INTENT: Summary\nTEXT: auth を service に切り出す。takuro が設計し、tanaka が回帰確認する。\nSTRUCTURED: {\"todos\":[{\"text\":\"auth の設計\",\"assignee\":\"takuro\"},{\"text\":\"回帰確認\",\"assignee\":\"tanaka\"}],\"decisions\":[\"auth は service に切り出す\"],\"skill_suggestions\":[]}\n' ;;\n  *TASK:todos*) printf 'INTENT: Todo\nTEXT: TODO を抽出しました\nSTRUCTURED: {\"todos\":[{\"text\":\"auth の設計\",\"assignee\":\"takuro\"}],\"decisions\":[],\"skill_suggestions\":[]}\n' ;;\n  *TASK:intervene*) printf 'INTENT: Summary\nTEXT: 決定事項を整理します\nSTRUCTURED: {\"todos\":[],\"decisions\":[\"auth は service に切り出す\"],\"skill_suggestions\":[]}\n' ;;\n  *) printf 'INTENT: Clarify\nTEXT: fallback\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\n' ;;\nesac\n",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test(&config).unwrap();
 
     app.handle_input_line_for_test("auth serviceに切り出したい").unwrap();
@@ -38,16 +29,7 @@ fn summary_commands_and_auto_intervention_work_end_to_end() {
     app.handle_input_line_for_test("/summary").unwrap();
     app.handle_input_line_for_test("/todos").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .filter_map(|message| match &message.message_type {
-            MessageType::Text(text) | MessageType::AiText(text) => Some(text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("auth を service に切り出す"));
     assert!(rendered.contains("takuro"));
@@ -56,28 +38,18 @@ fn summary_commands_and_auto_intervention_work_end_to_end() {
 #[test]
 fn clerk_mode_intervenes_before_human_streak_limit_when_task_marker_exists() {
     let dir = TempDir::new().unwrap();
-    let script = write_script(
-        &dir,
+    let script = write_executable_script(
+        dir.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: 自動介入しました\nSTRUCTURED: {\"todos\":[{\"text\":\"auth の設計\",\"assignee\":\"takuro\"}],\"decisions\":[],\"skill_suggestions\":[]}\n'",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test(&config).unwrap();
 
     app.handle_input_line_for_test("takuro が auth の設計を書く").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .filter_map(|message| match &message.message_type {
-            MessageType::AiText(text) => Some(text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("自動介入しました"));
 }
@@ -85,14 +57,13 @@ fn clerk_mode_intervenes_before_human_streak_limit_when_task_marker_exists() {
 #[test]
 fn moderator_mode_does_not_intervene_for_plain_task_language() {
     let dir = TempDir::new().unwrap();
-    let script = write_script(
-        &dir,
+    let script = write_executable_script(
+        dir.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: moderator intervened\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\n'",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test(&config).unwrap();
 
     app.handle_input_line_for_test("/ai mode moderator").unwrap();
@@ -113,14 +84,13 @@ fn moderator_mode_does_not_intervene_for_plain_task_language() {
 #[test]
 fn slash_commands_are_not_included_in_transcript() {
     let dir = TempDir::new().unwrap();
-    let script = write_script(
-        &dir,
+    let script = write_executable_script(
+        dir.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'INTENT: Summary\nTEXT: noop\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\n'",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test(&config).unwrap();
 
     app.handle_input_line_for_test("auth serviceに切り出したい").unwrap();
@@ -139,13 +109,7 @@ fn help_command_groups_commands_with_descriptions() {
 
     app.handle_input_line_for_test("/help").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("【 AI 】"));
     assert!(rendered.contains("【 Summary 】"));
@@ -179,13 +143,7 @@ fn ai_commands_report_human_readable_feedback() {
     app.handle_input_line_for_test("/ai mode moderator").unwrap();
     app.handle_input_line_for_test("/ai freq low").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("AI mode set to moderator"));
     assert!(rendered.contains("AI frequency set to low"));
@@ -227,8 +185,7 @@ fn room_list_when_no_rooms_emits_no_rooms() {
 
     app.handle_input_line_for_test("/room list").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("no rooms"));
 }
 
@@ -242,8 +199,7 @@ fn peers_when_no_discovered_peers_emits_no_peers_discovered() {
 
     app.handle_input_line_for_test("/peers").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("no peers discovered"));
 }
 
@@ -257,8 +213,7 @@ fn run_with_unknown_proposal_id_shows_unknown_proposal() {
 
     app.handle_input_line_for_test("/run 1").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("unknown proposal id: 1"));
 }
 
@@ -272,8 +227,7 @@ fn cancel_with_no_active_task_emits_no_active_task() {
 
     app.handle_input_line_for_test("/cancel").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("no active task"));
 }
 
@@ -287,8 +241,7 @@ fn avatar_set_with_unknown_preset_warns_unknown_avatar_preset() {
 
     app.handle_input_line_for_test("/avatar set self nonexistent_avatar").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("Unknown avatar preset 'nonexistent_avatar'"));
 }
 
@@ -300,8 +253,7 @@ fn avatar_set_with_unknown_target_warns_unknown_target() {
 
     app.handle_input_line_for_test("/avatar set nope_user robot_guardian").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("Unknown target 'nope_user'"));
 }
 
@@ -315,7 +267,6 @@ fn avatar_mode_with_unknown_mode_warns_unknown_avatar_mode() {
 
     app.handle_input_line_for_test("/avatar mode bogus").unwrap();
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("Unknown avatar mode 'bogus'"));
 }

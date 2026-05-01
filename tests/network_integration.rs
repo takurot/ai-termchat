@@ -5,6 +5,10 @@ use triadchat::config::Config;
 use triadchat::message::{AiIntent, AiPayload, NetMessage, StructuredOutput};
 use triadchat::state::AiMode;
 
+mod common;
+
+use common::{rendered_messages, write_executable_script};
+
 fn test_config(user_name: &str, discovery_port: u16) -> Config {
     Config {
         user_name: user_name.to_string(),
@@ -134,13 +138,7 @@ fn room_and_peer_commands_show_richer_metadata() {
     takuro.handle_input_line_for_test("/room list").unwrap();
     takuro.handle_input_line_for_test("/room switch 1").unwrap();
 
-    let rendered = takuro
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&takuro);
 
     assert!(rendered.contains("Connected peers (2):"), "{rendered}");
     assert!(rendered.contains("tanaka  [in room, ready, untrusted]"), "{rendered}");
@@ -249,15 +247,11 @@ description: Review auth
     )
     .unwrap();
 
-    let script_path = workspace.path().join("mock-claude.sh");
-    std::fs::write(&script_path, "#!/bin/sh\nprintf 'review-auth executed'\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).unwrap();
-    }
+    let script_path = write_executable_script(
+        workspace.path(),
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'review-auth executed'\n",
+    );
 
     let discovery_port = 42000 + (rand::random::<u16>() % 1000);
     let mut takuro_config = test_config("takuro", discovery_port);
@@ -307,13 +301,7 @@ description: Review auth
 
     takuro.handle_confirmation_input_for_test('y').unwrap();
 
-    let transcript = takuro
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let transcript = rendered_messages(&takuro);
     assert!(transcript.contains("review-auth executed"));
 }
 
@@ -334,15 +322,11 @@ description: Review auth
     )
     .unwrap();
 
-    let script_path = workspace.path().join("mock-claude.sh");
-    std::fs::write(&script_path, "#!/bin/sh\nprintf 'review-auth executed'\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).unwrap();
-    }
+    let script_path = write_executable_script(
+        workspace.path(),
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'review-auth executed'\n",
+    );
 
     let discovery_port = 43000 + (rand::random::<u16>() % 1000);
     let mut takuro_config = test_config("takuro", discovery_port);
@@ -395,13 +379,7 @@ description: Review auth
     takuro.handle_input_line_for_test(&format!("/trust remove {fingerprint}")).unwrap();
     takuro.handle_input_line_for_test("/run 1").unwrap();
 
-    let transcript = takuro
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let transcript = rendered_messages(&takuro);
     assert!(transcript.contains("removed trust for"));
     assert!(transcript.contains("permission denied: proposal 1 came from untrusted peer tanaka"));
     assert!(takuro.state().pending_confirmation().is_none());

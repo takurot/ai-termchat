@@ -1,16 +1,16 @@
 use crate::action::{Action, Processing};
 use crate::commands::{Command, ParsedCommand};
-use crate::state::{State};
-use crate::message::{NetMessage, Chunk};
-use crate::util::{Result, Reportable};
-use crate::encoder::{Encoder};
+use crate::encoder::Encoder;
+use crate::message::{Chunk, NetMessage};
+use crate::state::State;
+use crate::util::{Reportable, Result};
 
 use std::collections::HashSet;
-use message_io::network::{NetworkController, Endpoint};
+use message_io::network::{Endpoint, NetworkController};
 
-use std::path::{Path};
-use std::io::{Read};
-use std::time::{Duration};
+use std::io::Read;
+use std::path::Path;
+use std::time::Duration;
 
 pub struct SendFileCommand;
 
