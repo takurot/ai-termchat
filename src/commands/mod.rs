@@ -1,4 +1,5 @@
 pub mod ai_cmd;
+pub mod art_cmd;
 pub mod avatar_cmd;
 pub mod peer_cmd;
 pub mod room_cmd;
@@ -54,6 +55,8 @@ pub enum AppCommand {
     RunProposal(usize),
     Cancel,
     Avatar(AvatarCommandKind),
+    ArtList,
+    ArtReload,
     Help,
 }
 

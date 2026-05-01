@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -17,6 +18,7 @@ use crate::ai::{AiMediator, AiTask};
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::{AvatarSize, AvatarState};
 use crate::commands::ai_cmd::AiCommand;
+use crate::commands::art_cmd::ArtCommand;
 use crate::commands::avatar_cmd::AvatarCommand;
 use crate::commands::peer_cmd::{PeerCommand, TrustCommand};
 use crate::commands::room_cmd::{PeersCommand, RoomCommand};
@@ -63,6 +65,8 @@ pub struct Application<'a> {
     runtime: tokio::runtime::Runtime,
     ai_mediator: Option<Arc<AiMediator>>,
     avatar_manager: AvatarManager,
+    art_dict: HashMap<String, String>,
+    art_yaml_path: Option<PathBuf>,
     test_mode: bool,
     local_server_port: Option<u16>,
     config_file_path: Option<PathBuf>,
@@ -123,7 +127,8 @@ impl<'a> Application<'a> {
             .with(SummaryCommand::todos())
             .with(SummaryCommand::decisions())
             .with(SummaryCommand::context())
-            .with(AvatarCommand);
+            .with(AvatarCommand)
+            .with(ArtCommand);
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut state = State::default();
@@ -160,6 +165,13 @@ impl<'a> Application<'a> {
             Some(Config::config_file_path_with_base(workspace.join(".triadchat-test-config")))
         };
 
+        let art_yaml_path = if collect_terminal_events {
+            Config::config_dir_path().map(|d| d.join("art.yaml"))
+        } else {
+            Some(workspace.join("art.yaml"))
+        };
+        let art_dict = load_art_dictionary(art_yaml_path.as_deref()).unwrap_or_default();
+
         Ok(Self {
             config,
             commands,
@@ -172,6 +184,8 @@ impl<'a> Application<'a> {
             runtime,
             ai_mediator,
             avatar_manager,
+            art_dict,
+            art_yaml_path,
             test_mode: !collect_terminal_events,
             local_server_port: None,
             config_file_path,
@@ -492,6 +506,8 @@ impl<'a> Application<'a> {
                     return Ok(());
                 }
 
+                let input = expand_shortcodes(&input, &self.art_dict);
+
                 self.state.add_message(ChatMessage::new(
                     format!("{} (me)", self.config.user_name),
                     MessageType::Text(input.clone()),
@@ -757,6 +773,38 @@ impl<'a> Application<'a> {
             }
             AppCommand::Cancel => self.cancel_active_task(),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
+            AppCommand::ArtList => {
+                if self.art_dict.is_empty() {
+                    self.state.add_system_info_message(
+                        "No art shortcodes defined. Place an art.yaml file in ~/.config/triadchat/"
+                            .into(),
+                    );
+                } else {
+                    let mut keys: Vec<&str> = self.art_dict.keys().map(String::as_str).collect();
+                    keys.sort();
+                    self.state
+                        .add_system_info_message(format!("Art shortcodes: {}", keys.join(", ")));
+                }
+            }
+            AppCommand::ArtReload => {
+                let result = load_art_dictionary(self.art_yaml_path.as_deref());
+                match result {
+                    Ok(dict) => {
+                        let count = dict.len();
+                        self.art_dict = dict;
+                        self.state.add_system_info_message(format!(
+                            "Art dictionary reloaded ({} entries)",
+                            count
+                        ));
+                    }
+                    Err(err) => {
+                        self.state.add_system_error_message(format!(
+                            "Failed to reload art dictionary: {}",
+                            err
+                        ));
+                    }
+                }
+            }
             AppCommand::Help => {
                 self.state.messages_scroll(ScrollMovement::Start);
                 self.state.add_system_info_message(help_text());
@@ -1538,6 +1586,13 @@ fn help_text() -> String {
                 ("/avatar mode <size>", "Set size: compact, normal, expressive"),
             ],
         ),
+        (
+            "Art",
+            vec![
+                ("/art list", "List configured art shortcodes"),
+                ("/art reload", "Reload art.yaml"),
+            ],
+        ),
         ("Files", vec![("/send <file>", "Send a file to peers in the room")]),
     ];
 
@@ -1572,6 +1627,39 @@ fn ai_frequency_label(frequency: &AiFrequency) -> &'static str {
         AiFrequency::Normal => "normal",
         AiFrequency::High => "high",
     }
+}
+
+fn load_art_dictionary(
+    path: Option<&std::path::Path>,
+) -> std::result::Result<HashMap<String, String>, String> {
+    let Some(path) = path else {
+        return Err("no art.yaml path configured".into());
+    };
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    serde_yaml::from_str::<HashMap<String, String>>(&contents)
+        .map_err(|e| format!("failed to parse {}: {e}", path.display()))
+}
+
+fn expand_shortcodes(input: &str, art_dict: &HashMap<String, String>) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
+        if ch == '[' {
+            let remaining: String = chars.clone().map(|(_, c)| c).collect();
+            if let Some((key, _)) = remaining.split_once(']') {
+                if let Some(art) = art_dict.get(key) {
+                    result.push_str(art);
+                    for _ in 0..=key.chars().count() {
+                        chars.next();
+                    }
+                    continue;
+                }
+            }
+        }
+        result.push(ch);
+    }
+    result
 }
 
 fn short_fingerprint(fingerprint: &str) -> &str {
