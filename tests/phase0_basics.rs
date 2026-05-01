@@ -1,11 +1,16 @@
 use std::path::Path;
 
-use triadchat::commands::CommandManager;
+use triadchat::commands::{AppCommand, CommandManager, ParsedCommand};
 use triadchat::config::{Config, LanguageConfig};
 
 #[test]
-fn command_prefix_is_slash() {
-    assert_eq!(CommandManager::COMMAND_PREFIX, "/");
+fn slash_prefixed_help_parses_but_plain_text_does_not() {
+    let manager = CommandManager::default();
+
+    let parsed = manager.find_command("/help").expect("/help should be recognized").unwrap();
+    assert!(matches!(parsed, ParsedCommand::App(AppCommand::Help)));
+    assert!(manager.find_command("help").is_none());
+    assert!(manager.find_command("hello /help").is_none());
 }
 
 #[test]
