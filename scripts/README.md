@@ -36,7 +36,7 @@ DEV_DRY_RUN=1 scripts/dev-workflow.sh docs/PLAN.md "Phase 2.1: ..." 42
 | 2 | TDD implementation | Red-green-refactor cycle; ≥80% coverage required |
 | 3 | Cleanup | Removes test slop, debug prints, commented-out code |
 | 4 | Verification | Build, lint, types, tests — fixes deterministic local failures |
-| 5 | E2E tests | Playwright flows for affected user journeys; writes `.dev-e2e-report.md`; exits on failure |
+| 5 | E2E tests | Runs `cargo test` integration tests (Playwright if configured); on failure attempts one fix-and-retry; writes `.dev-e2e-report.md` with root cause analysis and exits if still failing |
 | 6 | Security review | OWASP Top 10 checklist; fixes CRITICAL/HIGH before continuing |
 | 7 | Eval verification | Re-runs evals from step 1; exits 1 if any fail |
 | 8 | Commit → PR | Conventional commit, push, `gh pr create` |

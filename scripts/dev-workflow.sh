@@ -689,7 +689,7 @@ fi
 
 if [ 5 -ge "$RESUME_FROM" ]; then
 echo ""
-echo "==> [5/13] E2E テスト"
+echo "==> [5/13] E2E テスト (第1回)"
 run_agent_exec "$DEV_E2E_AGENT_FAMILY" "$MODEL_E2E" "" <<EOF
 $(load_skill "$SKILL_E2E")
 
@@ -697,54 +697,53 @@ $(load_skill "$SKILL_E2E")
 Task: $TASK
 Read $PLAN for context.
 
-1. Identify the critical user flows affected by this task
-   (auth, key feature flows, payment/financial flows if applicable)
+This project is a Rust terminal application (triadchat). There is no browser UI.
+E2E tests run via cargo, not Playwright.
 
-2. Check if E2E tests already exist for these flows (tests/e2e/):
-   - If yes: run them and fix any failures before adding new tests
-   - If no: create minimal Page Object Model tests for the affected flows
+## Test discovery
 
-3. Run the E2E suite:
-   npx playwright test --reporter=list 2>&1 | tail -40
+1. Check which E2E / integration test files are relevant to this task:
+   - tests/phase0_commands_e2e.rs  — Phase 0 command flows
+   - tests/phase1_commands_e2e.rs  — Phase 1 room / multi-peer flows
+   - tests/network_integration.rs  — network-layer flows
+   - Any other tests/\*.rs files whose names suggest they cover affected flows
 
-4. If Playwright is not installed in this project, write the following to $E2E_REPORT_FILE
-   and stop:
+2. If Playwright config (playwright.config.*) exists, run it instead:
+   npx playwright test --reporter=list 2>&1 | tail -60
 
-   ## Status
-   SKIPPED
-   ## Reason
-   Playwright not configured in this project.
+## Running the tests
 
-5. If all tests pass, write the following to $E2E_REPORT_FILE:
+Run only the E2E / integration tests relevant to this task:
+   cargo test --test phase0_commands_e2e 2>&1
+   cargo test --test phase1_commands_e2e 2>&1
+   # add --features ui-test if the test file requires it
 
+Capture the full output including any FAILED lines and panic messages.
+
+## Output
+
+Write the result to $E2E_REPORT_FILE using exactly this format:
+
+If all pass:
    ## Status
    PASS
-   ## Flows Tested
-   - <list of flows>
+   ## Tests Run
+   - <test name>: PASS
    ## Summary
-   <pass count> passed, 0 failed.
+   <N> passed, 0 failed.
 
-6. If any tests fail, perform root cause analysis:
-   - Collect error messages, stack traces, and screenshots/traces
-   - Identify whether the failure is in app code or test code
-   - Determine the specific component, function, or selector causing the failure
-   Then write the following to $E2E_REPORT_FILE:
-
+If any fail:
    ## Status
    FAIL
-   ## Flows Tested
-   - <list of flows>
+   ## Tests Run
+   - <test name>: PASS
+   - <test name>: FAIL
    ## Summary
-   <pass count> passed, <fail count> failed.
-   ## Root Cause Analysis
+   <N> passed, <M> failed.
+   ## Failures
    ### <test name>
-   - **Error**: <error message>
+   - **Error**: <panic message or assertion>
    - **Location**: <file:line>
-   - **Cause**: <root cause description>
-   - **Recommended fix**: <specific fix>
-   (repeat for each failing test)
-
-   Do NOT attempt to fix app or test code when failures occur — report only.
 EOF
 
 if ! is_dry_run; then
@@ -757,10 +756,71 @@ if ! is_dry_run; then
 
   if echo "$E2E_STATUS" | grep -qiE "^FAIL$"; then
     echo ""
-    echo "ERROR: E2E テストが失敗しました。レポートを確認してください: $E2E_REPORT_FILE" >&2
-    echo ""
-    cat "$E2E_REPORT_FILE"
-    exit 1
+    echo "  E2E テスト失敗を検出。修正を試みてリトライします..."
+
+    run_agent_exec "$DEV_E2E_AGENT_FAMILY" "$MODEL_E2E" "" <<EOF2
+$(load_skill "$SKILL_E2E")
+
+---
+E2E tests failed on the first run. Read the failure report at $E2E_REPORT_FILE.
+
+This project is a Rust terminal application. Failures are in cargo integration tests.
+
+Steps:
+1. Read each failure in the ## Failures section
+2. Read the failing test source file and the relevant app code
+3. Identify the root cause (app code bug vs. test assumption mismatch)
+4. Apply the minimal fix to app code or test code
+5. Re-run the failing tests to confirm they pass:
+   cargo test --test <test_file> <test_name> 2>&1
+6. If the fix causes other tests to fail, revert and do not proceed
+
+Then overwrite $E2E_REPORT_FILE with the updated result using the same format:
+   ## Status
+   PASS  ← if all pass after fix
+   (or FAIL if still failing)
+   ## Tests Run
+   ...
+   ## Summary
+   ...
+   ## Fix Applied
+   - <what was changed and why>
+EOF2
+
+    if [ ! -f "$E2E_REPORT_FILE" ]; then
+      echo "ERROR: リトライ後に E2E レポートファイルが見つかりません: $E2E_REPORT_FILE" >&2
+      exit 1
+    fi
+
+    E2E_STATUS=$(grep -i "^## Status" -A1 "$E2E_REPORT_FILE" | tail -1 | tr -d ' \n' 2>/dev/null || echo "UNKNOWN")
+
+    if echo "$E2E_STATUS" | grep -qiE "^FAIL$"; then
+      run_agent_exec "$DEV_E2E_AGENT_FAMILY" "$MODEL_E2E" "" <<EOF3
+$(load_skill "$SKILL_E2E")
+
+---
+E2E tests are still failing after a fix attempt. Read $E2E_REPORT_FILE for context.
+
+Perform a thorough root cause analysis for each remaining failure and append
+a ## Root Cause Analysis section to $E2E_REPORT_FILE:
+
+### <test name>
+- **Error**: <error message>
+- **Location**: <file:line>
+- **Cause**: <root cause — be specific about which component or invariant is broken>
+- **Recommended fix**: <concrete fix with file and line reference>
+
+Do NOT make further code changes. Report only.
+EOF3
+
+      echo ""
+      echo "ERROR: E2E テストがリトライ後も失敗しました。レポートを確認してください: $E2E_REPORT_FILE" >&2
+      echo ""
+      cat "$E2E_REPORT_FILE"
+      exit 1
+    fi
+
+    echo "  E2E リトライ成功。"
   fi
 
   echo "E2E ステータス: $E2E_STATUS"
