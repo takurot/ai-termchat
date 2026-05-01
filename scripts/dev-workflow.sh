@@ -88,6 +88,7 @@ SKILL_SHIP="$PRIMARY_SKILL_DIR/ship-release/SKILL.md"
 
 NOTES_FILE=".dev-task-notes.md"
 CHECKPOINT_FILE=".dev-task-checkpoint"
+E2E_REPORT_FILE=".dev-e2e-report.md"
 REVIEW_FILE=""
 PR_NUMBER=""
 PR_URL=""
@@ -706,20 +707,64 @@ Read $PLAN for context.
 3. Run the E2E suite:
    npx playwright test --reporter=list 2>&1 | tail -40
 
-4. If any tests fail:
-   - Capture screenshots/traces for failures
-   - Debug root cause before editing
-   - Fix the underlying issue (app code or test code)
-   - Re-run to confirm green
+4. If Playwright is not installed in this project, write the following to $E2E_REPORT_FILE
+   and stop:
 
-5. If Playwright is not installed in this project, skip this step and output:
-   'E2E SKIPPED — Playwright not configured in this project.'
+   ## Status
+   SKIPPED
+   ## Reason
+   Playwright not configured in this project.
 
-Output a brief E2E REPORT:
-- Flows tested
-- Pass / Fail count
-- Any flaky tests quarantined with test.fixme()
+5. If all tests pass, write the following to $E2E_REPORT_FILE:
+
+   ## Status
+   PASS
+   ## Flows Tested
+   - <list of flows>
+   ## Summary
+   <pass count> passed, 0 failed.
+
+6. If any tests fail, perform root cause analysis:
+   - Collect error messages, stack traces, and screenshots/traces
+   - Identify whether the failure is in app code or test code
+   - Determine the specific component, function, or selector causing the failure
+   Then write the following to $E2E_REPORT_FILE:
+
+   ## Status
+   FAIL
+   ## Flows Tested
+   - <list of flows>
+   ## Summary
+   <pass count> passed, <fail count> failed.
+   ## Root Cause Analysis
+   ### <test name>
+   - **Error**: <error message>
+   - **Location**: <file:line>
+   - **Cause**: <root cause description>
+   - **Recommended fix**: <specific fix>
+   (repeat for each failing test)
+
+   Do NOT attempt to fix app or test code when failures occur — report only.
 EOF
+
+if ! is_dry_run; then
+  if [ ! -f "$E2E_REPORT_FILE" ]; then
+    echo "ERROR: E2E レポートファイルが生成されませんでした: $E2E_REPORT_FILE" >&2
+    exit 1
+  fi
+
+  E2E_STATUS=$(grep -i "^## Status" -A1 "$E2E_REPORT_FILE" | tail -1 | tr -d ' \n' 2>/dev/null || echo "UNKNOWN")
+
+  if echo "$E2E_STATUS" | grep -qiE "^FAIL$"; then
+    echo ""
+    echo "ERROR: E2E テストが失敗しました。レポートを確認してください: $E2E_REPORT_FILE" >&2
+    echo ""
+    cat "$E2E_REPORT_FILE"
+    exit 1
+  fi
+
+  echo "E2E ステータス: $E2E_STATUS"
+fi
 checkpoint 5
 else
   echo ""
@@ -970,6 +1015,7 @@ EOF
 
 rm -f "$CHECKPOINT_FILE"
 rm -f "$NOTES_FILE"
+rm -f "$E2E_REPORT_FILE"
 
 echo ""
 echo "======================================================"

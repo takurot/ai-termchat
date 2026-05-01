@@ -36,7 +36,7 @@ DEV_DRY_RUN=1 scripts/dev-workflow.sh docs/PLAN.md "Phase 2.1: ..." 42
 | 2 | TDD implementation | Red-green-refactor cycle; ≥80% coverage required |
 | 3 | Cleanup | Removes test slop, debug prints, commented-out code |
 | 4 | Verification | Build, lint, types, tests — fixes deterministic local failures |
-| 5 | E2E tests | Playwright flows for affected user journeys |
+| 5 | E2E tests | Playwright flows for affected user journeys; writes `.dev-e2e-report.md`; exits on failure |
 | 6 | Security review | OWASP Top 10 checklist; fixes CRITICAL/HIGH before continuing |
 | 7 | Eval verification | Re-runs evals from step 1; exits 1 if any fail |
 | 8 | Commit → PR | Conventional commit, push, `gh pr create` |
@@ -117,4 +117,5 @@ The script writes `.dev-task-checkpoint` after each completed step. If interrupt
 |---|---|---|
 | `.dev-task-notes.md` | Shared scratchpad passed to all agents | Deleted on successful completion |
 | `.dev-task-checkpoint` | Last completed step number | Deleted on successful completion |
+| `.dev-e2e-report.md` | E2E test report with root cause analysis (if failed) | Deleted on success; persists on failure for diagnosis |
 | `review-<PR>.md` | Raw code review output | Persists after run for reference |
