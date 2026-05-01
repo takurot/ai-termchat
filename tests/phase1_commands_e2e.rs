@@ -127,9 +127,15 @@ fn confirmation_flow_cancels_with_n() {
     app.handle_input_line_for_test("/run 1").unwrap();
     app.handle_confirmation_input_for_test('n').unwrap();
 
+    assert!(app.state().pending_confirmation().is_none(), "pending confirmation should be cleared");
+
     let rendered =
         app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
     assert!(rendered.contains("skill execution cancelled"));
+    assert!(
+        !rendered.contains("review-auth finished successfully"),
+        "skill should not have executed"
+    );
 }
 
 // ─── /cancel with pending confirmation, no running task ──────────────────────
@@ -164,7 +170,15 @@ fn cancel_with_pending_confirmation_but_no_running_task_cancels_confirmation() {
     app.process_next_event_for_test().unwrap();
 
     app.handle_input_line_for_test("/run 1").unwrap();
+    assert!(
+        app.state().pending_confirmation().is_some(),
+        "should have pending confirmation after /run"
+    );
     app.handle_input_line_for_test("/cancel").unwrap();
+    assert!(
+        app.state().pending_confirmation().is_none(),
+        "pending confirmation should be cleared after /cancel"
+    );
 
     let rendered =
         app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
@@ -200,8 +214,17 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
 
     takuro.handle_input_line_for_test("/run 1").unwrap();
 
+    assert!(
+        takuro.state().pending_confirmation().is_none(),
+        "permission denied should not leave pending confirmation"
+    );
+
     let rendered =
         takuro.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
     assert!(rendered.contains("permission denied"));
     assert!(rendered.contains("untrusted peer tanaka"));
+    assert!(
+        !rendered.contains("noop"),
+        "mock script output should not appear when permission denied"
+    );
 }
