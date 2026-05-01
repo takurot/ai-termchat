@@ -1076,6 +1076,43 @@ impl<'a> Application<'a> {
         );
     }
 
+    pub fn inject_receive_chunk_for_test(
+        &mut self,
+        file_name: &str,
+        chunk: Chunk,
+        user_name: &str,
+    ) {
+        use std::io::Write;
+        match chunk {
+            Chunk::Error => {
+                format!("'{}' had an error while sending '{}'", user_name, file_name)
+                    .report_err(&mut self.state);
+            }
+            Chunk::End => {
+                format!("Successfully received file '{}' from user '{}'!", file_name, user_name)
+                    .report_info(&mut self.state);
+            }
+            Chunk::Data(data) => {
+                let try_write = || -> Result<()> {
+                    let user_path = std::env::temp_dir().join("triadchat").join(user_name);
+                    match std::fs::create_dir_all(&user_path) {
+                        Ok(_) => {}
+                        Err(ref err) if err.kind() == ErrorKind::AlreadyExists => {}
+                        Err(error) => return Err(error.into()),
+                    }
+                    let file_path = user_path.join(file_name);
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(file_path)?
+                        .write_all(&data)?;
+                    Ok(())
+                };
+                try_write().report_if_err(&mut self.state);
+            }
+        }
+    }
+
     pub fn righ_the_bell(&self) {
         if self.config.terminal_bell {
             print!("\x07");
