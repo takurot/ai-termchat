@@ -45,3 +45,29 @@ fn remote_room_preserves_ai_mode_from_creator() {
     assert_eq!(room.members[1].kind, MemberKind::Ai);
     assert_eq!(room.members[1].ai_mode, Some(AiMode::Clerk));
 }
+
+#[test]
+fn room_ids_do_not_collide_across_independent_engines() {
+    let mut alice_engine = RoomEngine::default();
+    let mut bob_engine = RoomEngine::default();
+
+    let alice_room = alice_engine.create_room("alice", &[], None);
+    let bob_room = bob_engine.create_room("bob", &[], None);
+
+    assert_ne!(alice_room.id, bob_room.id);
+}
+
+#[test]
+fn same_owner_rapid_rooms_have_unique_ids() {
+    let mut engine = RoomEngine::default();
+    let a = engine.create_room("takuro", &[], None);
+    let b = engine.create_room("takuro", &[], None);
+    let c = engine.create_room("takuro", &[], None);
+
+    assert_ne!(a.id, b.id);
+    assert_ne!(b.id, c.id);
+    assert_ne!(a.id, c.id);
+    assert!(a.id.starts_with("takuro-"));
+    assert!(b.id.starts_with("takuro-"));
+    assert!(c.id.starts_with("takuro-"));
+}

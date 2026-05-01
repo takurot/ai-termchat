@@ -147,10 +147,14 @@ fn room_and_peer_commands_show_richer_metadata() {
     assert!(rendered.contains("sato  [available, ready, untrusted]"), "{rendered}");
     assert!(rendered.contains("Rooms (1):"), "{rendered}");
     assert!(rendered.contains("1"), "{rendered}");
-    assert!(rendered.contains("room-1"), "{rendered}");
     assert!(rendered.contains("mode: clerk"), "{rendered}");
     assert!(rendered.contains("active"), "{rendered}");
-    assert!(rendered.contains("Switched to room-1 [takuro, tanaka]"), "{rendered}");
+    let room_id = takuro.state().active_room_id().unwrap().to_string();
+    assert!(
+        rendered.contains(&room_id),
+        "expected room id {room_id} in rendered output: {rendered}"
+    );
+    assert!(rendered.contains(&format!("Switched to {room_id} [takuro, tanaka]")), "{rendered}");
     assert!(rendered.contains("AI: clerk"), "{rendered}");
 }
 
