@@ -1113,6 +1113,15 @@ impl<'a> Application<'a> {
         }
     }
 
+    pub fn connect_raw_for_test(&mut self, server_addr: SocketAddr) -> Result<Endpoint> {
+        let (endpoint, _) = self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
+        Ok(endpoint)
+    }
+
+    pub fn inject_network_message_for_test(&mut self, endpoint: Endpoint, message: NetMessage) {
+        self.process_network_message(endpoint, message);
+    }
+
     pub fn righ_the_bell(&self) {
         if self.config.terminal_bell {
             print!("\x07");
