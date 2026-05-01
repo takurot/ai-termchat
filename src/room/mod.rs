@@ -1,6 +1,8 @@
 pub mod member;
 pub mod transcript;
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::message::RoomId;
 use crate::state::AiMode;
 
@@ -29,7 +31,12 @@ impl RoomEngine {
         }
 
         self.next_room_number += 1;
-        let room = Room { id: format!("room-{}", self.next_room_number), members, ai_mode };
+        let ts_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let id = format!("{owner}-{ts_ms}");
+        let room = Room { id, members, ai_mode };
         self.active_room_id = Some(room.id.clone());
         self.rooms.push(room.clone());
         room
