@@ -1,6 +1,8 @@
 use triadchat::ai::parser::parse_ai_payload;
 use triadchat::ai::prompt::{lang_instruction, summary_prompt, todos_prompt, truncate_transcript};
-use triadchat::message::AiIntent;
+use triadchat::application::{Application, Signal};
+use triadchat::config::Config;
+use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
 
 #[test]
 fn language_instruction_supports_supported_languages() {
@@ -43,4 +45,77 @@ fn parser_falls_back_without_panicking() {
     let payload = parse_ai_payload("unexpected raw response");
     assert_eq!(payload.intent, AiIntent::Clarify);
     assert!(payload.text.contains("unexpected raw response"));
+}
+
+#[test]
+fn parser_malformed_structured_json_becomes_none() {
+    let raw = "INTENT: Todo\nTEXT: some text\nSTRUCTURED: {not valid json}\n";
+    let payload = parse_ai_payload(raw);
+    assert_eq!(payload.intent, AiIntent::Todo);
+    assert_eq!(payload.text, "some text");
+    assert!(payload.structured.is_none());
+}
+
+#[test]
+fn parser_skill_suggest_intent() {
+    let raw = "INTENT: SkillSuggest\nTEXT: some text\n";
+    let payload = parse_ai_payload(raw);
+    assert_eq!(payload.intent, AiIntent::SkillSuggest);
+}
+
+#[test]
+fn parser_skip_intent() {
+    let raw = "INTENT: Skip\nTEXT: some text\n";
+    let payload = parse_ai_payload(raw);
+    assert_eq!(payload.intent, AiIntent::Skip);
+}
+
+#[test]
+fn parser_unknown_intent_falls_back_to_clarify() {
+    let raw = "INTENT: UnknownThing\nTEXT: some text\n";
+    let payload = parse_ai_payload(raw);
+    assert_eq!(payload.intent, AiIntent::Clarify);
+}
+
+#[test]
+fn parser_multiple_metadata_lines_uses_last_value() {
+    let raw = "INTENT: Todo\nINTENT: Summary\nTEXT: foo\nTEXT: bar\nSTRUCTURED: {\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}\nSTRUCTURED: {\"todos\":[],\"decisions\":[\"x\"],\"skill_suggestions\":[]}\n";
+    let payload = parse_ai_payload(raw);
+    assert_eq!(payload.intent, AiIntent::Summary);
+    assert_eq!(payload.text, "bar");
+    assert!(payload.structured.is_some());
+    if let Some(structured) = &payload.structured {
+        assert_eq!(structured.decisions, vec!["x"]);
+    }
+}
+
+#[test]
+fn structured_none_clears_skill_proposals() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+    let node = app.node_handler();
+
+    node.signals().send(Signal::AiResponse(
+        AiPayload {
+            text: "suggested".into(),
+            intent: AiIntent::SkillSuggest,
+            structured: Some(StructuredOutput {
+                todos: Vec::new(),
+                decisions: Vec::new(),
+                skill_suggestions: vec!["review-auth".into()],
+                raw_text: None,
+            }),
+        },
+        false,
+    ));
+    app.process_next_event_for_test().unwrap();
+    assert!(!app.state().skill_proposals().is_empty(), "should have proposals");
+
+    node.signals().send(Signal::AiResponse(
+        AiPayload { text: "raw text".into(), intent: AiIntent::Clarify, structured: None },
+        false,
+    ));
+    app.process_next_event_for_test().unwrap();
+    assert!(app.state().skill_proposals().is_empty(), "proposals should be cleared");
 }
