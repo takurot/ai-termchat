@@ -211,8 +211,4 @@ fn trust_persistence_failure_does_not_crash() {
 
     let rendered = rendered_messages(app.state());
     assert_contains(&rendered, "trusted peer tanaka");
-
-    let mut perms = fs::metadata(&config_toml).unwrap().permissions();
-    perms.set_readonly(false);
-    fs::set_permissions(&config_toml, perms).unwrap();
 }
