@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use triadchat::application::Application;
+use triadchat::commands::send_file::SendFile;
 use triadchat::config::Config;
+use triadchat::state::{MessageType, SystemMessageType};
 
 fn test_config(user_name: &str, discovery_port: u16) -> Config {
     Config {
@@ -10,6 +12,95 @@ fn test_config(user_name: &str, discovery_port: u16) -> Config {
         terminal_bell: false,
         ..Config::default()
     }
+}
+
+// ── `/send` command error-path tests ────────────────────────────────
+
+#[test]
+fn send_no_args_emits_error() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app =
+        Application::new_for_test(&config).expect("application should build for no-args test");
+    app.handle_input_line_for_test("/send").expect("/send with no args should not panic");
+    let messages = app.state().messages();
+    let last = messages.last().expect("a system error should be emitted for /send with no args");
+    assert!(
+        last.rendered_text().contains("No file specified"),
+        "expected message to contain 'No file specified', got: '{}'",
+        last.rendered_text(),
+    );
+}
+
+#[test]
+fn send_nonexistent_file_emits_error() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config)
+        .expect("application should build for nonexistent-file test");
+    app.handle_input_line_for_test("/send /nonexistent/file/path.txt")
+        .expect("/send with nonexistent path should not panic");
+    let messages = app.state().messages();
+    let last = messages.last().expect("a system error should be emitted for nonexistent file");
+    let text = last.rendered_text();
+    assert!(!text.is_empty(), "expected a non-empty error message for nonexistent file, got empty",);
+
+    assert!(
+        matches!(last.message_type, MessageType::System(_, SystemMessageType::Error)),
+        "expected last message to be a system error, got: {:?}",
+        last.message_type,
+    );
+
+    assert!(
+        text.contains("/nonexistent/file/path.txt")
+            || text.contains("No such file")
+            || text.contains("not found")
+            || text.to_lowercase().contains("unable to"),
+        "expected error to reference the file, got: '{}'",
+        text,
+    );
+}
+
+#[test]
+fn send_trailing_space_emits_error() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config)
+        .expect("application should build for trailing-space test");
+    app.handle_input_line_for_test("/send ").expect("/send with trailing space should not panic");
+    let messages = app.state().messages();
+    let last =
+        messages.last().expect("a system error should be emitted for /send with trailing space");
+    assert!(
+        last.rendered_text().contains("No file specified"),
+        "expected 'No file specified' for /send with trailing space, got: '{}'",
+        last.rendered_text(),
+    );
+}
+
+// ── SendFile::new() error-path unit tests ───────────────────────────
+
+#[test]
+fn send_file_new_root_path_fails() {
+    let result = SendFile::new("/");
+    assert!(result.is_err(), "SendFile::new('/') should fail (no file name)");
+    let err = result.err().expect("just asserted is_err");
+    assert!(
+        err.to_string().contains("Unable to read file name"),
+        "expected 'Unable to read file name', got: '{err}'",
+    );
+}
+
+#[test]
+fn send_file_new_nonexistent_fails() {
+    let result = SendFile::new("/nonexistent/file/path.txt");
+    assert!(
+        result.is_err(),
+        "SendFile::new('/nonexistent/file/path.txt') should fail (file not found)",
+    );
+    let err = result.err().expect("just asserted is_err");
+    let text = err.to_string();
+    assert!(!text.is_empty(), "expected a non-empty error for nonexistent file",);
 }
 
 fn pump_until<F>(
@@ -70,4 +161,34 @@ fn send_file() {
     let send_data = std::fs::read(received_path).unwrap();
     assert_eq!(data.len(), send_data.len());
     assert_eq!(data, send_data);
+}
+
+#[test]
+fn receive_chunk_error_reports_error_message() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_receive_chunk_for_test("test.txt", triadchat::message::Chunk::Error, "sender");
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("had an error while sending"));
+    assert!(rendered.contains("test.txt"));
+    assert!(rendered.contains("sender"));
+}
+
+#[test]
+fn receive_chunk_end_reports_success_message() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_receive_chunk_for_test("test.txt", triadchat::message::Chunk::End, "sender");
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(rendered.contains("Successfully received file"));
+    assert!(rendered.contains("test.txt"));
+    assert!(rendered.contains("sender"));
 }
