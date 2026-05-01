@@ -42,12 +42,7 @@ fn peer_info(user_name: &str) -> PeerInfo {
 }
 
 fn rendered_messages(state: &State) -> String {
-    state
-        .messages()
-        .iter()
-        .map(|m| m.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n")
+    state.messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n")
 }
 
 fn assert_contains(rendered: &str, expected: &str) {
