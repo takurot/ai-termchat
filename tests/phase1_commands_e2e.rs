@@ -1,20 +1,12 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 
-use triadchat::application::{Application, Signal};
-use triadchat::config::{AiConfig, Config};
-use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
+mod common;
 
-fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
-    let path = dir.path().join(name);
-    fs::write(&path, body).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
-    path
-}
+use common::{config_with_ai_script, rendered_messages, write_executable_script};
+use triadchat::application::{Application, Signal};
+use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
 
 fn create_skill_workspace() -> TempDir {
     let dir = TempDir::new().unwrap();
@@ -39,14 +31,13 @@ args_hint: <ticket-id>
 #[test]
 fn phase1_skill_commands_execute_without_polluting_transcript() {
     let workspace = create_skill_workspace();
-    let script = write_script(
-        &workspace,
+    let script = write_executable_script(
+        workspace.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'review-auth finished successfully'\n",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
     let node = app.node_handler();
 
@@ -70,13 +61,7 @@ fn phase1_skill_commands_execute_without_polluting_transcript() {
     app.handle_input_line_for_test("/run 1").unwrap();
     app.handle_confirmation_input_for_test('y').unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("name"));
     assert!(rendered.contains("risk"));
     assert!(rendered.contains("mode"));
@@ -98,14 +83,13 @@ fn phase1_skill_commands_execute_without_polluting_transcript() {
 #[test]
 fn confirmation_flow_cancels_with_n() {
     let workspace = create_skill_workspace();
-    let script = write_script(
-        &workspace,
+    let script = write_executable_script(
+        workspace.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'review-auth finished successfully'\n",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
     let node = app.node_handler();
 
@@ -129,8 +113,7 @@ fn confirmation_flow_cancels_with_n() {
 
     assert!(app.state().pending_confirmation().is_none(), "pending confirmation should be cleared");
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("skill execution cancelled"));
     assert!(
         !rendered.contains("review-auth finished successfully"),
@@ -143,14 +126,13 @@ fn confirmation_flow_cancels_with_n() {
 #[test]
 fn cancel_with_pending_confirmation_but_no_running_task_cancels_confirmation() {
     let workspace = create_skill_workspace();
-    let script = write_script(
-        &workspace,
+    let script = write_executable_script(
+        workspace.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'review-auth finished successfully'\n",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
     let node = app.node_handler();
 
@@ -180,8 +162,7 @@ fn cancel_with_pending_confirmation_but_no_running_task_cancels_confirmation() {
         "pending confirmation should be cleared after /cancel"
     );
 
-    let rendered =
-        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("skill execution cancelled"));
 }
 
@@ -190,13 +171,9 @@ fn cancel_with_pending_confirmation_but_no_running_task_cancels_confirmation() {
 #[test]
 fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
     let workspace = create_skill_workspace();
-    let script = write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'noop'\n");
-
-    let config = Config {
-        user_name: "takuro".into(),
-        ai: AiConfig { command: Some(script.display().to_string()), ..Default::default() },
-        ..Default::default()
-    };
+    let script =
+        write_executable_script(workspace.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop'\n");
+    let config = config_with_ai_script(&script, "takuro");
 
     let mut takuro = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
 
@@ -219,8 +196,7 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
         "permission denied should not leave pending confirmation"
     );
 
-    let rendered =
-        takuro.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    let rendered = rendered_messages(&takuro);
     assert!(rendered.contains("permission denied"));
     assert!(rendered.contains("untrusted peer tanaka"));
     assert!(

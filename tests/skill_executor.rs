@@ -1,23 +1,16 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use tempfile::TempDir;
 
+mod common;
+
+use common::{config_with_ai_script, rendered_messages, write_executable_script};
 use triadchat::application::{Application, Signal};
 use triadchat::config::Config;
 use triadchat::message::{AiIntent, AiPayload, StructuredOutput};
 use triadchat::skill::registry::{InvokeMode, RiskLevel};
 use triadchat::state::AiState;
-
-fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
-    let path = dir.path().join(name);
-    fs::write(&path, body).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
-    path
-}
 
 fn create_skill_workspace() -> TempDir {
     let dir = TempDir::new().unwrap();
@@ -59,14 +52,13 @@ description: Summarise text
 #[test]
 fn skill_command_requires_confirmation_then_posts_result() {
     let workspace = create_skill_workspace();
-    let script = write_script(
-        &workspace,
+    let script = write_executable_script(
+        workspace.path(),
         "mock-claude.sh",
         "#!/bin/sh\nprintf 'review-auth finished successfully'\n",
     );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
 
     app.handle_input_line_for_test("/skill review-auth").unwrap();
@@ -78,13 +70,7 @@ fn skill_command_requires_confirmation_then_posts_result() {
 
     app.handle_confirmation_input_for_test('y').unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("review-auth finished successfully"));
     assert_eq!(app.state().ai_state, AiState::Idle);
@@ -93,11 +79,13 @@ fn skill_command_requires_confirmation_then_posts_result() {
 #[test]
 fn cancel_stops_running_skill_task() {
     let workspace = create_skill_workspace();
-    let script =
-        write_script(&workspace, "slow-claude.sh", "#!/bin/sh\nsleep 2\nprintf 'late result'\n");
+    let script = write_executable_script(
+        workspace.path(),
+        "slow-claude.sh",
+        "#!/bin/sh\nsleep 2\nprintf 'late result'\n",
+    );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_in_workspace(&config, workspace.path()).unwrap();
 
     app.handle_input_line_for_test("/skill review-auth").unwrap();
@@ -111,11 +99,13 @@ fn cancel_stops_running_skill_task() {
 #[test]
 fn run_uses_pending_skill_proposals_from_ai_response() {
     let workspace = create_skill_workspace();
-    let script =
-        write_script(&workspace, "mock-claude.sh", "#!/bin/sh\nprintf 'proposal executed'\n");
+    let script = write_executable_script(
+        workspace.path(),
+        "mock-claude.sh",
+        "#!/bin/sh\nprintf 'proposal executed'\n",
+    );
 
-    let mut config = Config::default();
-    config.ai.command = Some(script.display().to_string());
+    let config = config_with_ai_script(&script, "takuro");
     let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
     let node = app.node_handler();
 
@@ -140,13 +130,7 @@ fn run_uses_pending_skill_proposals_from_ai_response() {
 
     app.handle_confirmation_input_for_test('y').unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
     assert!(rendered.contains("proposal executed"));
 }
 
@@ -159,13 +143,7 @@ fn suggest_only_skill_explains_how_to_run_it() {
 
     app.handle_input_line_for_test("/skill summarise").unwrap();
 
-    let rendered = app
-        .state()
-        .messages()
-        .iter()
-        .map(|message| message.rendered_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let rendered = rendered_messages(&app);
 
     assert!(rendered.contains("Skill 'summarise' is propose-only"));
     assert!(rendered.contains("/run <id>"));

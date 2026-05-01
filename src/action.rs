@@ -1,8 +1,8 @@
-use crate::state::{State};
+use crate::state::State;
 
-use message_io::network::{NetworkController};
+use message_io::network::NetworkController;
 
-use std::time::{Duration};
+use std::time::Duration;
 
 pub enum Processing {
     Completed,

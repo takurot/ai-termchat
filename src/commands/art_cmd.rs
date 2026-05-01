@@ -1,12 +1,6 @@
 use crate::commands::{AppCommand, Command, ParsedCommand};
 use crate::util::Result;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ArtCommandKind {
-    List,
-    Reload,
-}
-
 pub struct ArtCommand;
 
 impl Command for ArtCommand {
