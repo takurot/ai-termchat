@@ -128,3 +128,33 @@ fn art_reload_replaces_dictionary() {
     assert!(rendered.contains("new-art"));
     assert!(rendered.contains("Art dictionary reloaded (1 entries)"));
 }
+
+#[test]
+fn art_shortcode_with_unicode_key_and_trailing_text() {
+    let dir = TempDir::new().unwrap();
+    let script = dir.path().join("mock-claude.sh");
+    fs::write(&script, "#!/bin/sh\nprintf 'ok'\n").unwrap();
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+
+    let workspace = TempDir::new().unwrap();
+    let art_yaml = workspace.path().join("art.yaml");
+    fs::write(&art_yaml, "猫: Neko\n").unwrap();
+
+    let mut config = Config::default();
+    config.ai.command = Some(script.display().to_string());
+    config.user_name = "tester".into();
+    config.terminal_bell = false;
+
+    let mut app = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
+
+    app.handle_input_line_for_test("[猫] trailing").unwrap();
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+
+    assert!(rendered.contains("Neko"), "expected Neko, got: {rendered}");
+    assert!(rendered.contains("trailing"), "expected trailing, got: {rendered}");
+    assert!(!rendered.contains("[猫]"), "shortcode should be replaced, got: {rendered}");
+}

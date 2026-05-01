@@ -1,0 +1,36 @@
+discovery_addr = "239.255.0.1:58428"
+tcp_server_port = 0
+user_name = "tester"
+terminal_bell = false
+
+[language]
+ai_output = "ja"
+ui = "ja"
+
+[ai]
+enabled = true
+provider = "claude"
+command = "/var/folders/0z/wsc39bn52pvb9c3clp9fjdf80000gq/T/.tmpiwB6Vc/mock-claude.sh"
+timeout_secs = 30
+
+[security]
+default_permission = "confirm-required"
+trusted_peers = ["f1ac86d8e8f1ecadbe3503f4462b07bbc04453d1d105b46d0fa55fc126d9f621"]
+
+[theme]
+message_colors = ["Blue", "Yellow", "Cyan", "Magenta"]
+my_user_color = "Green"
+date_color = "DarkGray"
+system_info_color = ["Cyan", "LightCyan"]
+system_warning_color = ["Yellow", "LightYellow"]
+system_error_color = ["Red", "LightRed"]
+chat_panel_color = "White"
+progress_bar_color = "LightGreen"
+command_color = "LightYellow"
+input_panel_color = "White"
+mention_me_color = "Yellow"
+mention_other_color = "Cyan"
+
+[user]
+avatar = "human_default"
+ai_avatar = "ai_default"
