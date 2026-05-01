@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::message::RoomId;
 use crate::state::AiMode;
+use tracing::warn;
 
 pub use member::{Member, MemberKind};
 
@@ -31,7 +32,13 @@ impl RoomEngine {
         }
 
         self.next_room_number += 1;
-        let ts_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+        let ts_ms = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_millis(),
+            Err(error) => {
+                warn!("system clock is before UNIX_EPOCH while creating room id: {error}");
+                0
+            }
+        };
         let id = format!("{owner}-{ts_ms}-{}", self.next_room_number);
         let room = Room { id, members, ai_mode };
         self.active_room_id = Some(room.id.clone());

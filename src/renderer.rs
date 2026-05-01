@@ -9,6 +9,7 @@ use crossterm::ExecutableCommand;
 
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
+use tracing::warn;
 
 use std::io::Write;
 
@@ -39,11 +40,12 @@ impl<W: Write> Renderer<W> {
 
 impl<W: Write> Drop for Renderer<W> {
     fn drop(&mut self) {
-        self.terminal
-            .backend_mut()
-            .execute(terminal::LeaveAlternateScreen)
-            .expect("Could not execute to stdout");
-        terminal::disable_raw_mode().expect("Terminal doesn't support to disable raw mode");
+        if let Err(error) = self.terminal.backend_mut().execute(terminal::LeaveAlternateScreen) {
+            warn!("failed to leave alternate screen: {error}");
+        }
+        if let Err(error) = terminal::disable_raw_mode() {
+            warn!("failed to disable raw mode: {error}");
+        }
         if std::thread::panicking() {
             eprintln!(
                 "triadchat panicked, redirect stderr to a file to inspect the failure, for example: triadchat 2> triadchat.log",

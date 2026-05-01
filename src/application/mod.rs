@@ -11,6 +11,7 @@ use message_io::network::{Endpoint, Transport};
 use message_io::node::{
     self, NodeHandler, NodeTask, StoredNetEvent as NetEvent, StoredNodeEvent as NodeEvent,
 };
+use tracing::warn;
 
 use crate::action::{Action, Processing};
 use crate::ai::trigger::{contains_ops_ai_mention, should_intervene, TriggerConfig};
@@ -1450,10 +1451,11 @@ impl<'a> Application<'a> {
 
         let mut lines = vec![format!("Connected peers ({}):", self.state.peer_names().len())];
         for peer in self.state.peer_names() {
-            let endpoint = self
-                .state
-                .peer_endpoint_by_name(&peer)
-                .expect("peer endpoint should exist for known peer name");
+            let Some(endpoint) = self.state.peer_endpoint_by_name(&peer) else {
+                warn!("peer listed without endpoint: {peer}");
+                lines.push(format!("  {peer}  [unavailable]"));
+                continue;
+            };
             let room_status = if active_members.iter().any(|member| member == &peer) {
                 "in room"
             } else {
@@ -1463,10 +1465,12 @@ impl<'a> Application<'a> {
                 PeerReadiness::Ready => "ready",
                 PeerReadiness::Connecting => "connecting",
             };
-            let fingerprint = self
-                .state
-                .peer_fingerprint(endpoint)
-                .expect("peer fingerprint should exist for known peer");
+            let Some(fingerprint) = self.state.peer_fingerprint(endpoint) else {
+                warn!("peer endpoint has no fingerprint: {peer}");
+                lines
+                    .push(format!("  {peer}  [{room_status}, {readiness}, untrusted]  fp=unknown"));
+                continue;
+            };
             let trust =
                 if self.state.is_trusted_peer(&fingerprint) { "trusted" } else { "untrusted" };
             lines.push(format!(
@@ -1643,22 +1647,28 @@ fn load_art_dictionary(
 
 fn expand_shortcodes(input: &str, art_dict: &HashMap<String, String>) -> String {
     let mut result = String::with_capacity(input.len());
-    let mut chars = input.char_indices().peekable();
-    while let Some((_, ch)) = chars.next() {
-        if ch == '[' {
-            let remaining: String = chars.clone().map(|(_, c)| c).collect();
-            if let Some((key, _)) = remaining.split_once(']') {
-                if let Some(art) = art_dict.get(key) {
-                    result.push_str(art);
-                    for _ in 0..=key.chars().count() {
-                        chars.next();
-                    }
-                    continue;
-                }
+    let mut cursor = 0;
+
+    while let Some(open_rel) = input[cursor..].find('[') {
+        let open = cursor + open_rel;
+        result.push_str(&input[cursor..open]);
+
+        let key_start = open + '['.len_utf8();
+        if let Some(close_rel) = input[key_start..].find(']') {
+            let close = key_start + close_rel;
+            let key = &input[key_start..close];
+            if let Some(art) = art_dict.get(key) {
+                result.push_str(art);
+                cursor = close + ']'.len_utf8();
+                continue;
             }
         }
-        result.push(ch);
+
+        result.push('[');
+        cursor = key_start;
     }
+
+    result.push_str(&input[cursor..]);
     result
 }
 
@@ -1765,5 +1775,25 @@ mod tests {
         let payload =
             AiPayload { text: "raw text".into(), intent: AiIntent::Clarify, structured: None };
         assert_eq!(render_ai_payload(&payload), "raw text");
+    }
+
+    #[test]
+    fn expand_shortcodes_replaces_known_codes_without_losing_unicode() {
+        let mut art_dict = HashMap::new();
+        art_dict.insert("猫".to_string(), "Neko".to_string());
+        art_dict.insert("wave".to_string(), "o/".to_string());
+
+        assert_eq!(expand_shortcodes("[猫] says [wave]", &art_dict), "Neko says o/");
+    }
+
+    #[test]
+    fn expand_shortcodes_leaves_unknown_or_unclosed_codes_intact() {
+        let mut art_dict = HashMap::new();
+        art_dict.insert("ok".to_string(), "OK".to_string());
+
+        assert_eq!(
+            expand_shortcodes("[nope] [ok] [unterminated", &art_dict),
+            "[nope] OK [unterminated"
+        );
     }
 }
