@@ -1,5 +1,9 @@
 ref/
 target/
+.ai-run/
+.dev-task-notes.md
+.dev-task-checkpoint
+.dev-e2e-report.md
 .agents/
 .codex/
 .super-skills/

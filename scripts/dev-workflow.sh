@@ -94,6 +94,9 @@ PR_NUMBER=""
 PR_URL=""
 VERDICT=""
 
+LOG_DIR="${DEV_LOG_DIR:-.ai-run}"
+LOG_FILE=""
+
 # チェックポイントから再開位置を決定
 RESUME_FROM=0
 if [ -f "$CHECKPOINT_FILE" ]; then
@@ -420,6 +423,22 @@ EOF
   echo "Issue #$issue_number の情報を $NOTES_FILE に注入しました。"
 }
 
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+_STEP_START=0
+
+step_start() {
+  _STEP_START=$(date +%s)
+  log "START $*"
+}
+
+step_end() {
+  local elapsed=$(( $(date +%s) - _STEP_START ))
+  log "DONE  $* (${elapsed}s)"
+}
+
 cleanup_files() {
   : # intentionally empty — NOTES_FILE is removed only on success (line ~909)
 }
@@ -448,6 +467,11 @@ if ! is_dry_run; then
     "$DEV_RELEASE_AGENT_FAMILY" \
     "$DEV_CI_AGENT_FAMILY"
 fi
+
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/$(date '+%Y%m%d-%H%M%S').log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+log "ログ出力先: $LOG_FILE"
 
 if [ "$RESUME_FROM" -eq 0 ]; then
   initialize_notes_file
@@ -551,6 +575,7 @@ print_runtime_summary
 if [ 0 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [0/13] リサーチ — 既存実装・パターン調査"
+step_start "[0/13] リサーチ"
 run_agent_exec "$DEV_PLAN_AGENT_FAMILY" "$MODEL_PLAN" "Read,Grep,Glob,Bash" <<EOF
 Task: $TASK
 Read $PLAN for context.
@@ -578,6 +603,7 @@ Output a brief research summary (5-10 bullet points) covering:
 Append the summary to $NOTES_FILE under '## Research Findings'.
 EOF
 checkpoint 0
+step_end "[0/13] リサーチ"
 else
   echo ""
   echo "==> [0/13] リサーチ — スキップ (チェックポイント済み)"
@@ -586,6 +612,7 @@ fi
 if [ 1 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [1/13] Eval 定義 + タスク分解"
+step_start "[1/13] Eval 定義"
 run_agent_exec "$DEV_PLAN_AGENT_FAMILY" "$MODEL_PLAN" "" <<EOF
 $(load_skill "$SKILL_EVAL")
 
@@ -607,6 +634,7 @@ Read research findings in $NOTES_FILE for codebase patterns.
 Output the eval definitions and task units. Do not implement yet.
 EOF
 checkpoint 1
+step_end "[1/13] Eval 定義"
 else
   echo ""
   echo "==> [1/13] Eval 定義 — スキップ (チェックポイント済み)"
@@ -615,6 +643,7 @@ fi
 if [ 2 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [2/13] TDD 実装"
+step_start "[2/13] TDD 実装"
 run_agent_exec "$DEV_IMPL_AGENT_FAMILY" "$MODEL_IMPL" "" <<EOF
 $(load_skill "$SKILL_TDD")
 
@@ -643,6 +672,7 @@ Do NOT write implementation before tests.
 Keep changes surgical and limited to the task.
 EOF
 checkpoint 2
+step_end "[2/13] TDD 実装"
 else
   echo ""
   echo "==> [2/13] TDD 実装 — スキップ (チェックポイント済み)"
@@ -651,6 +681,7 @@ fi
 if [ 3 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [3/13] クリーンアップ"
+step_start "[3/13] クリーンアップ"
 run_agent_exec "$DEV_IMPL_AGENT_FAMILY" "$MODEL_CLEANUP" "" <<EOF
 Review all files changed since the last commit (git diff HEAD).
 Remove test slop:
@@ -665,6 +696,7 @@ Run the test suite after cleanup and confirm it still passes.
 Do not change architecture or add new behavior.
 EOF
 checkpoint 3
+step_end "[3/13] クリーンアップ"
 else
   echo ""
   echo "==> [3/13] クリーンアップ — スキップ (チェックポイント済み)"
@@ -673,6 +705,7 @@ fi
 if [ 4 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [4/13] 多段検証"
+step_start "[4/13] 多段検証"
 run_agent_exec "$DEV_VERIFY_AGENT_FAMILY" "$MODEL_VERIFY" "" <<EOF
 $(load_skill "$SKILL_VERIFY")
 
@@ -682,6 +715,7 @@ Do not add new features. Fix failures only.
 Output a VERIFICATION REPORT with PASS/FAIL per phase.
 EOF
 checkpoint 4
+step_end "[4/13] 多段検証"
 else
   echo ""
   echo "==> [4/13] 多段検証 — スキップ (チェックポイント済み)"
@@ -690,6 +724,7 @@ fi
 if [ 5 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [5/13] E2E テスト (第1回)"
+step_start "[5/13] E2E テスト"
 run_agent_exec "$DEV_E2E_AGENT_FAMILY" "$MODEL_E2E" "" <<EOF
 $(load_skill "$SKILL_E2E")
 
@@ -826,6 +861,7 @@ EOF3
   echo "E2E ステータス: $E2E_STATUS"
 fi
 checkpoint 5
+step_end "[5/13] E2E テスト"
 else
   echo ""
   echo "==> [5/13] E2E テスト — スキップ (チェックポイント済み)"
@@ -834,6 +870,7 @@ fi
 if [ 6 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [6/13] セキュリティレビュー"
+step_start "[6/13] セキュリティレビュー"
 SECURITY_PROMPT=""
 if [ -f "$SKILL_SECURITY" ]; then
   SECURITY_PROMPT="$(load_skill "$SKILL_SECURITY")
@@ -864,6 +901,7 @@ If any CRITICAL or HIGH issue is found:
 If clean, output: 'Security review PASSED — no critical/high issues found.'
 EOF
 checkpoint 6
+step_end "[6/13] セキュリティレビュー"
 else
   echo ""
   echo "==> [6/13] セキュリティレビュー — スキップ (チェックポイント済み)"
@@ -872,6 +910,7 @@ fi
 if [ 7 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [7/13] Eval 検証"
+step_start "[7/13] Eval 検証"
 run_agent_exec "$DEV_PLAN_AGENT_FAMILY" "$MODEL_PLAN" "Read,Grep,Glob,Bash" <<EOF
 $(load_skill "$SKILL_EVAL")
 
@@ -883,6 +922,7 @@ Report pass@k delta vs baseline.
 If any eval fails: output what needs fixing and exit with code 1.
 EOF
 checkpoint 7
+step_end "[7/13] Eval 検証"
 else
   echo ""
   echo "==> [7/13] Eval 検証 — スキップ (チェックポイント済み)"
@@ -891,6 +931,7 @@ fi
 if [ 8 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [8/13] コミット → プッシュ → PR 作成"
+step_start "[8/13] コミット → PR"
 run_agent_exec "$DEV_RELEASE_AGENT_FAMILY" "$MODEL_RELEASE" "" <<EOF
 $(load_skill "$SKILL_SHIP")
 
@@ -921,6 +962,7 @@ and the failure is directly caused by release metadata.
 Output the PR URL at the end.
 EOF
 checkpoint 8
+step_end "[8/13] コミット → PR"
 else
   echo ""
   echo "==> [8/13] コミット → PR — スキップ (チェックポイント済み)"
@@ -950,8 +992,10 @@ echo "PR: $PR_URL"
 if [ 9 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [9/13] CI 監視ループ① (PR作成後)"
+step_start "[9/13] CI 監視①"
 wait_for_ci_green "PR作成後"
 checkpoint 9
+step_end "[9/13] CI 監視①"
 else
   echo ""
   echo "==> [9/13] CI 監視ループ① — スキップ (チェックポイント済み)"
@@ -962,6 +1006,7 @@ REVIEW_FILE="review-${PR_NUMBER}.md"
 if [ 10 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [10/13] コードレビュー"
+step_start "[10/13] コードレビュー"
 if is_dry_run; then
   echo "DRY RUN REVIEW [$DEV_REVIEW_AGENT_FAMILY]: $(describe_review_command "$DEV_REVIEW_AGENT_FAMILY" "$REVIEW_MODEL")"
   cat >"$REVIEW_FILE" <<EOF
@@ -993,6 +1038,7 @@ $(build_codex_review_prompt "$PR_NUMBER" "$TASK" "$NOTES_FILE" "$PLAN")
 EOF
 fi
 checkpoint 10
+step_end "[10/13] コードレビュー"
 else
   echo ""
   echo "==> [10/13] コードレビュー — スキップ (チェックポイント済み)"
@@ -1001,6 +1047,7 @@ fi
 if [ 11 -ge "$RESUME_FROM" ]; then
 echo ""
 echo "==> [11/13] レビューを PR に投稿"
+step_start "[11/13] レビュー投稿"
 run_agent_exec "$DEV_RELEASE_AGENT_FAMILY" "$MODEL_RELEASE" "" <<EOF
 Read the review file at $REVIEW_FILE.
 
@@ -1012,6 +1059,7 @@ Then check the Verdict line:
 - If REQUEST_CHANGES or BLOCK: output 'Review requires changes.' and list CRITICAL and HIGH findings only.
 EOF
 checkpoint 11
+step_end "[11/13] レビュー投稿"
 else
   echo ""
   echo "==> [11/13] レビュー投稿 — スキップ (チェックポイント済み)"
@@ -1025,6 +1073,7 @@ fi
 if [ 12 -ge "$RESUME_FROM" ] && echo "$VERDICT" | grep -qiE "BLOCK|REQUEST_CHANGES"; then
   echo ""
   echo "==> [12/13] レビュー指摘対応 + CI 監視ループ②"
+  step_start "[12/13] レビュー指摘対応"
 
   run_agent_exec "$DEV_IMPL_AGENT_FAMILY" "$MODEL_IMPL" "" <<EOF
 $(load_skill "$SKILL_VERIFY")
@@ -1051,6 +1100,7 @@ EOF
 
   wait_for_ci_green "レビュー対応後"
   checkpoint 12
+  step_end "[12/13] レビュー指摘対応"
   echo ""
   echo "指摘対応 + CI グリーン確認完了。PR をマージしてください: $PR_URL"
 else
@@ -1061,6 +1111,7 @@ fi
 
 echo ""
 echo "==> [post] 学習記録 (continuous-learning-v2)"
+step_start "[post] 学習記録"
 run_agent_exec "$DEV_RELEASE_AGENT_FAMILY" "$MODEL_RELEASE" "" <<EOF
 $(load_skill "$SKILL_LEARNING")
 
@@ -1073,6 +1124,7 @@ Extract 1-2 instincts learned from this session:
 Save each as an instinct with: trigger, action, confidence, domain, scope.
 EOF
 
+step_end "[post] 学習記録"
 rm -f "$CHECKPOINT_FILE"
 rm -f "$NOTES_FILE"
 rm -f "$E2E_REPORT_FILE"
@@ -1081,4 +1133,5 @@ echo ""
 echo "======================================================"
 echo " Completed: $TASK"
 echo " PR: $PR_URL"
+log "全ステップ完了。ログ: $LOG_FILE"
 echo "======================================================"
