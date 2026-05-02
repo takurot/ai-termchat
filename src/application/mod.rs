@@ -271,7 +271,7 @@ impl<'a> Application<'a> {
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
                     self.state.windows.remove(&endpoint);
-                    self.righ_the_bell();
+                    self.ring_the_bell();
                 }
             },
             NodeEvent::Signal(signal) => match signal {
@@ -321,13 +321,13 @@ impl<'a> Application<'a> {
                 if !already_ready {
                     self.send_peer_info(endpoint);
                 }
-                self.righ_the_bell();
+                self.ring_the_bell();
             }
             NetMessage::UserMessage(content) => {
                 if let Some(user) = self.state.user_name(endpoint) {
                     self.state
                         .add_message(ChatMessage::new(user.into(), MessageType::Text(content)));
-                    self.righ_the_bell();
+                    self.ring_the_bell();
                 }
             }
             NetMessage::UserData(file_name, chunk) => {
@@ -344,7 +344,7 @@ impl<'a> Application<'a> {
                                 file_name, user
                             )
                             .report_info(&mut self.state);
-                            self.righ_the_bell();
+                            self.ring_the_bell();
                         }
                         Chunk::Data(data) => {
                             let try_write = || -> Result<()> {
@@ -1028,7 +1028,7 @@ impl<'a> Application<'a> {
             crate::util::send_all(self.node.network(), &endpoints, message)
                 .report_if_err(&mut self.state);
         }
-        self.righ_the_bell();
+        self.ring_the_bell();
     }
 
     fn process_ai_failure(&mut self, error: String) {
@@ -1171,7 +1171,7 @@ impl<'a> Application<'a> {
         self.process_network_message(endpoint, message);
     }
 
-    pub fn righ_the_bell(&self) {
+    pub fn ring_the_bell(&self) {
         if self.config.terminal_bell {
             print!("\x07");
         }
