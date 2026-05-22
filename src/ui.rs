@@ -19,7 +19,6 @@ use crate::state::{MessageType, ProgressState, State, SystemMessageType};
 use crate::ui::layout::should_show_side_panels;
 use crate::ui::messages::messages;
 use crate::ui::peers_panel::draw_peers_panel;
-use crate::ui::room_list_panel::draw_room_list_panel;
 use crate::ui::status_panel::draw_status_panel;
 use crate::util::split_each;
 
@@ -42,38 +41,21 @@ pub fn draw(
     if should_show_side_panels(chunk.width) {
         // ── Wide layout ────────────────────────────────────────────────────
         //
-        //  ┌──────────┬──────────────────────┐
-        //  │  Peers   │        Chat          │
-        //  │──────────┤──────────────────────┤
-        //  │  Rooms   │       ops-ai         │
-        //  ├──────────┴──────────────────────┤
-        //  │              Input              │
-        //  └─────────────────────────────────┘
+        //  ┌──────────┬──────────────────────┬──────────────┐
+        //  │  Peers   │        Chat          │    ops-ai    │
+        //  ├──────────┴──────────────────────┴──────────────┤
+        //  │                    Input                       │
+        //  └────────────────────────────────────────────────┘
         //
-        // Horizontal: left column(18) | right column(min)
+        // Horizontal: peers(18) | chat(min) | status(22)
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(layout::left_right_constraints())
+            .constraints(layout::three_pane_constraints())
             .split(upper_chunk);
 
-        // Left column: peers(min) above, rooms(scaled) below
-        let left_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(layout::left_column_constraints(upper_chunk.height))
-            .split(h_chunks[0]);
-
-        // Right column: chat(min) above, ops-ai(11) below
-        let right_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(layout::right_column_constraints())
-            .split(h_chunks[1]);
-
-        draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
-        draw_room_list_panel(frame, state, left_chunks[1]);
-
-        draw_messages_panel(frame, state, right_chunks[0], theme, language);
-
-        draw_status_panel(frame, state, right_chunks[1], avatar_manager);
+        draw_peers_panel(frame, state, h_chunks[0], avatar_manager);
+        draw_messages_panel(frame, state, h_chunks[1], theme, language);
+        draw_status_panel(frame, state, h_chunks[2], avatar_manager);
     } else {
         // ── Narrow layout: chat above, ops-ai below ─────────────────────────
         let right_chunks = Layout::default()

@@ -1,7 +1,11 @@
 use tui::layout::Constraint;
 
-/// Horizontal split: [peers(18), right(min)].
-/// Peers spans the full height of the upper area (above input).
+/// Phase 2 wide split: [peers(18), chat(min), status(22)].
+pub fn three_pane_constraints() -> Vec<Constraint> {
+    vec![Constraint::Length(18), Constraint::Min(0), Constraint::Length(22)]
+}
+
+/// Legacy horizontal split: [peers(18), right(min)].
 pub fn left_right_constraints() -> Vec<Constraint> {
     vec![Constraint::Length(18), Constraint::Min(0)]
 }
