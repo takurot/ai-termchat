@@ -99,3 +99,9 @@ impl TranscriptWriter {
         writer.append(entry)
     }
 }
+
+impl Drop for TranscriptWriter {
+    fn drop(&mut self) {
+        let _ = self.file.flush();
+    }
+}

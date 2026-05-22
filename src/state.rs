@@ -164,6 +164,7 @@ pub struct State {
     pending_confirmation: Option<PendingSkillExecution>,
     pending_skill_proposals: Vec<SkillProposal>,
     transcript_base_dir: Option<PathBuf>,
+    transcript_writer: Option<(String, TranscriptWriter)>,
     trusted_peer_fingerprints: HashSet<String>,
     pub stop_stream: bool,
     pub windows: HashMap<Endpoint, Window>,
@@ -210,6 +211,7 @@ impl Default for State {
             pending_confirmation: None,
             pending_skill_proposals: Vec::new(),
             transcript_base_dir: None,
+            transcript_writer: None,
             trusted_peer_fingerprints: HashSet::new(),
             stop_stream: false,
             windows: HashMap::new(),
@@ -466,6 +468,7 @@ impl State {
 
     pub fn set_transcript_base_dir(&mut self, transcript_base_dir: Option<PathBuf>) {
         self.transcript_base_dir = transcript_base_dir;
+        self.transcript_writer = None;
     }
 
     pub fn set_trusted_peer_fingerprints(
@@ -964,8 +967,31 @@ impl State {
     }
 
     fn write_transcript_entry(&mut self, entry: TranscriptEntry) {
-        if let Some(base_dir) = self.transcript_base_dir.as_ref() {
-            let _ = TranscriptWriter::append_to_base(base_dir, &entry);
+        let Some(base_dir) = self.transcript_base_dir.clone() else {
+            return;
+        };
+
+        let room_id = entry.room_id.clone();
+        let needs_new_writer = self
+            .transcript_writer
+            .as_ref()
+            .map(|(active_room_id, _)| active_room_id != &room_id)
+            .unwrap_or(true);
+
+        if needs_new_writer {
+            match TranscriptWriter::open_with_base(base_dir, &room_id) {
+                Ok(writer) => self.transcript_writer = Some((room_id, writer)),
+                Err(_) => {
+                    self.transcript_writer = None;
+                    return;
+                }
+            }
+        }
+
+        if let Some((_, writer)) = self.transcript_writer.as_mut() {
+            if writer.append(&entry).is_err() {
+                self.transcript_writer = None;
+            }
         }
     }
 
