@@ -51,6 +51,15 @@ fn parser_collects_multiline_text_until_next_prefix() {
 }
 
 #[test]
+fn parser_collects_multiline_text_until_end_of_string() {
+    let raw = "INTENT: Summary\nTEXT: First line\nSecond line\nThird line";
+    let payload = parse_ai_payload(raw);
+
+    assert_eq!(payload.intent, AiIntent::Summary);
+    assert_eq!(payload.text, "First line\nSecond line\nThird line");
+}
+
+#[test]
 fn parser_falls_back_without_panicking() {
     let payload = parse_ai_payload("unexpected raw response");
     assert_eq!(payload.intent, AiIntent::Clarify);
