@@ -37,7 +37,7 @@ use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::state::{
     AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State,
-    Window, PeerReadiness,
+    PeerReadiness,
 };
 use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
 use crate::skill::registry::{InvokeMode, RiskLevel};
@@ -270,7 +270,6 @@ impl<'a> Application<'a> {
                 },
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
-                    self.state.windows.remove(&endpoint);
                     self.ring_the_bell();
                 }
             },
@@ -369,18 +368,6 @@ impl<'a> Application<'a> {
                     }
                 }
             }
-            NetMessage::Stream(data) => match data {
-                Some((data, width, height)) if data.len() == width * height / 2 => {
-                    self.state
-                        .windows
-                        .entry(endpoint)
-                        .or_insert_with(|| Window::new(width, height));
-                    self.state.update_window(&endpoint, data, width, height);
-                }
-                _ => {
-                    self.state.windows.remove(&endpoint);
-                }
-            },
             NetMessage::AiMessage(payload) => self.process_remote_ai_response(endpoint, payload),
             NetMessage::PeerInfo(peer) => {
                 self.state.connected_user(endpoint, &peer.user_name);

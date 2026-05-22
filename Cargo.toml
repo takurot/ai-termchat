@@ -28,8 +28,6 @@ shellwords = "1.1.0"
 shellexpand = "2.1.0"
 toml = "0.5.8"
 dirs-next = "2.0.0"
-rgb = {version="0.8.25", features=["serde"]}
-resize = "0.7.0"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 serde_yaml = "0.9"

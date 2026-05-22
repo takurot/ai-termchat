@@ -7,7 +7,6 @@ enum LegacyNetMessage {
     HelloUser(String),
     UserMessage(String),
     UserData(String, Chunk),
-    Stream(Option<(Vec<rgb::RGB8>, usize, usize)>),
     AiMessage(AiPayload),
     PeerInfo(PeerInfo),
     RoomCreate(String, Vec<String>),
