@@ -38,6 +38,6 @@ fn language_defaults_follow_lang_environment() {
     assert_eq!(zh.ui, "en");
 
     let fallback = LanguageConfig::from_lang_env_value(Some("unknown"));
-    assert_eq!(fallback.ai_output, "ja");
-    assert_eq!(fallback.ui, "ja");
+    assert_eq!(fallback.ai_output, "en");
+    assert_eq!(fallback.ui, "en");
 }
