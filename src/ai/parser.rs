@@ -4,15 +4,33 @@ pub fn parse_ai_payload(raw: &str) -> AiPayload {
     let mut intent = None;
     let mut text = None;
     let mut structured = None;
+    let mut text_buffer: Option<String> = None;
 
     for line in raw.lines() {
         if let Some(value) = line.strip_prefix("INTENT:") {
+            if let Some(value) = text_buffer.take() {
+                text = Some(value.trim().to_string());
+            }
             intent = Some(parse_intent(value.trim()));
         } else if let Some(value) = line.strip_prefix("TEXT:") {
-            text = Some(value.trim().to_string());
+            if let Some(value) = text_buffer.take() {
+                text = Some(value.trim().to_string());
+            }
+            text_buffer = Some(value.trim().to_string());
         } else if let Some(value) = line.strip_prefix("STRUCTURED:") {
+            if let Some(value) = text_buffer.take() {
+                text = Some(value.trim().to_string());
+            }
             structured = serde_json::from_str::<StructuredOutput>(value.trim()).ok();
+        } else if let Some(value) = text_buffer.as_mut() {
+            if !value.is_empty() {
+                value.push('\n');
+            }
+            value.push_str(line);
         }
+    }
+    if let Some(value) = text_buffer {
+        text = Some(value.trim().to_string());
     }
 
     match (intent, text) {

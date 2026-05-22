@@ -41,6 +41,25 @@ fn parser_extracts_structured_output() {
 }
 
 #[test]
+fn parser_collects_multiline_text_until_next_prefix() {
+    let raw = "INTENT: Summary\nTEXT: First line\nSecond line\nThird line\nSTRUCTURED: {\"todos\":[],\"decisions\":[\"ship it\"],\"skill_suggestions\":[]}\n";
+    let payload = parse_ai_payload(raw);
+
+    assert_eq!(payload.intent, AiIntent::Summary);
+    assert_eq!(payload.text, "First line\nSecond line\nThird line");
+    assert_eq!(payload.structured.as_ref().unwrap().decisions, vec!["ship it".to_string()]);
+}
+
+#[test]
+fn parser_collects_multiline_text_until_end_of_string() {
+    let raw = "INTENT: Summary\nTEXT: First line\nSecond line\nThird line";
+    let payload = parse_ai_payload(raw);
+
+    assert_eq!(payload.intent, AiIntent::Summary);
+    assert_eq!(payload.text, "First line\nSecond line\nThird line");
+}
+
+#[test]
 fn parser_falls_back_without_panicking() {
     let payload = parse_ai_payload("unexpected raw response");
     assert_eq!(payload.intent, AiIntent::Clarify);
