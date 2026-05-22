@@ -247,7 +247,8 @@ impl LanguageConfig {
             "en" => Self { ai_output: "en".into(), ui: "en".into() },
             "zh" => Self { ai_output: "zh".into(), ui: "en".into() },
             "ko" => Self { ai_output: "ko".into(), ui: "en".into() },
-            _ => Self { ai_output: "ja".into(), ui: "ja".into() },
+            "ja" => Self { ai_output: "ja".into(), ui: "ja".into() },
+            _ => Self { ai_output: "en".into(), ui: "en".into() },
         }
     }
 
