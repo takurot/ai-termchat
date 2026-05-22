@@ -1,6 +1,7 @@
 use tempfile::TempDir;
 
 use triadchat::room::transcript::{TranscriptEntry, TranscriptWriter};
+use triadchat::state::{ChatMessage, MessageType, State};
 
 #[test]
 fn transcript_writer_appends_jsonl_entries() {
@@ -47,4 +48,36 @@ fn transcript_writer_routes_entries_to_room_specific_files() {
 
     assert!(base.path().join("triadchat/transcripts/room-a.jsonl").exists());
     assert!(base.path().join("triadchat/transcripts/room-b.jsonl").exists());
+}
+
+#[test]
+fn state_reuses_open_transcript_writer_for_active_room() {
+    let base = TempDir::new().unwrap();
+    let mut state = State::default();
+    state.set_local_user_name("takuro");
+    state.set_transcript_base_dir(Some(base.path().to_path_buf()));
+
+    state.add_message(ChatMessage::new("takuro".into(), MessageType::Text("first".into())));
+
+    let path = base.path().join("triadchat/transcripts/solo-takuro.jsonl");
+    let renamed_path = base.path().join("triadchat/transcripts/solo-takuro-renamed.jsonl");
+    std::fs::rename(&path, &renamed_path).unwrap();
+
+    state.add_message(ChatMessage::new("takuro".into(), MessageType::Text("second".into())));
+    drop(state);
+
+    assert!(
+        !path.exists(),
+        "writer should keep using the open handle instead of reopening by path"
+    );
+
+    let raw = std::fs::read_to_string(renamed_path).unwrap();
+    let entries = raw
+        .lines()
+        .map(|line| serde_json::from_str::<TranscriptEntry>(line).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].text, "first");
+    assert_eq!(entries[1].text, "second");
 }
