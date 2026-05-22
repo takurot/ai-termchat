@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use chrono::{DateTime, Local};
 use message_io::network::Endpoint;
-use rgb::RGB8;
 use sha2::{Digest, Sha256};
 use tokio::task::AbortHandle;
 
@@ -134,18 +133,6 @@ impl ChatMessage {
     }
 }
 
-pub struct Window {
-    pub data: Vec<RGB8>,
-    pub width: usize,
-    pub height: usize,
-}
-
-impl Window {
-    pub fn new(width: usize, height: usize) -> Self {
-        Self { data: vec![], width, height }
-    }
-}
-
 pub struct State {
     messages: Vec<ChatMessage>,
     scroll_messages_view: usize,
@@ -166,8 +153,6 @@ pub struct State {
     transcript_base_dir: Option<PathBuf>,
     transcript_writer: Option<(String, TranscriptWriter)>,
     trusted_peer_fingerprints: HashSet<String>,
-    pub stop_stream: bool,
-    pub windows: HashMap<Endpoint, Window>,
     pub ai_state: AiState,
     pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
@@ -213,8 +198,6 @@ impl Default for State {
             transcript_base_dir: None,
             transcript_writer: None,
             trusted_peer_fingerprints: HashSet::new(),
-            stop_stream: false,
-            windows: HashMap::new(),
             ai_state: AiState::Idle,
             ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
@@ -911,20 +894,6 @@ impl State {
                 }
                 ProgressState::Completed => ProgressState::Completed,
             };
-        }
-    }
-
-    pub fn update_window(
-        &mut self,
-        endpoint: &Endpoint,
-        data: Vec<RGB8>,
-        width: usize,
-        height: usize,
-    ) {
-        if let Some(window) = self.windows.get_mut(endpoint) {
-            window.data = data;
-            window.width = width;
-            window.height = height;
         }
     }
 

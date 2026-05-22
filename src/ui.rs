@@ -4,9 +4,6 @@ pub mod peers_panel;
 pub mod room_list_panel;
 pub mod status_panel;
 
-use resize::px::RGB;
-use resize::Pixel::RGB8;
-use resize::Type::Lanczos3;
 use tui::backend::Backend;
 use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
@@ -18,7 +15,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::avatar::loader::AvatarManager;
 use crate::commands::CommandManager;
 use crate::config::{LanguageConfig, Theme};
-use crate::state::{MessageType, ProgressState, State, SystemMessageType, Window};
+use crate::state::{MessageType, ProgressState, State, SystemMessageType};
 use crate::ui::layout::should_show_side_panels;
 use crate::ui::messages::messages;
 use crate::ui::peers_panel::draw_peers_panel;
@@ -74,16 +71,7 @@ pub fn draw(
         draw_peers_panel(frame, state, left_chunks[0], avatar_manager);
         draw_room_list_panel(frame, state, left_chunks[1]);
 
-        if !state.windows.is_empty() {
-            let chat_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
-                .split(right_chunks[0]);
-            draw_messages_panel(frame, state, chat_chunks[0], theme, language);
-            draw_video_panel(frame, state, chat_chunks[1]);
-        } else {
-            draw_messages_panel(frame, state, right_chunks[0], theme, language);
-        }
+        draw_messages_panel(frame, state, right_chunks[0], theme, language);
 
         draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     } else {
@@ -93,16 +81,7 @@ pub fn draw(
             .constraints(layout::right_column_constraints())
             .split(upper_chunk);
 
-        if !state.windows.is_empty() {
-            let chat_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(30)].as_ref())
-                .split(right_chunks[0]);
-            draw_messages_panel(frame, state, chat_chunks[0], theme, language);
-            draw_video_panel(frame, state, chat_chunks[1]);
-        } else {
-            draw_messages_panel(frame, state, right_chunks[0], theme, language);
-        }
+        draw_messages_panel(frame, state, right_chunks[0], theme, language);
 
         draw_status_panel(frame, state, right_chunks[1], avatar_manager);
     }
@@ -363,12 +342,6 @@ fn draw_input_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect,
     frame.set_cursor(chunk.x + 1 + input_cursor.0, chunk.y + 1 + input_cursor.1)
 }
 
-fn draw_video_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect) {
-    let windows = state.windows.values().collect();
-    let fb = FrameBuffer::new(windows).block(Block::default().borders(Borders::ALL));
-    frame.render_widget(fb, chunk);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,63 +428,5 @@ mod tests {
         assert_eq!(spans[0].content, "Just an ");
         assert_eq!(spans[1].content, "@");
         assert_eq!(spans[2].content, " symbol");
-    }
-}
-
-#[derive(Default)]
-struct FrameBuffer<'a> {
-    windows: Vec<&'a Window>,
-    block: Option<Block<'a>>,
-}
-
-impl<'a> FrameBuffer<'a> {
-    fn new(windows: Vec<&'a Window>) -> Self {
-        Self { windows, ..Default::default() }
-    }
-
-    fn block(mut self, block: Block<'a>) -> FrameBuffer<'a> {
-        self.block = Some(block);
-        self
-    }
-}
-
-impl tui::widgets::Widget for FrameBuffer<'_> {
-    fn render(mut self, area: Rect, buf: &mut tui::buffer::Buffer) {
-        let area = match self.block.take() {
-            Some(block) => {
-                let inner = block.inner(area);
-                block.render(area, buf);
-                inner
-            }
-            None => area,
-        };
-
-        let windows_num = self.windows.len();
-        let window_height = area.height / windows_num as u16;
-        let y_start = area.y;
-        for (idx, window) in self.windows.iter().enumerate() {
-            let area =
-                Rect::new(area.x, y_start + window_height * idx as u16, area.width, window_height);
-
-            let mut resizer = resize::new(
-                window.width / 2,
-                window.height,
-                area.width as usize,
-                area.height as usize,
-                RGB8,
-                Lanczos3,
-            )
-            .unwrap();
-            let mut dst = vec![RGB::new(0, 0, 0); (area.width * area.height) as usize];
-            resizer.resize(&window.data, &mut dst).unwrap();
-
-            let mut dst = dst.iter();
-            for j in area.y..area.y + area.height {
-                for i in area.x..area.x + area.width {
-                    let rgb = dst.next().unwrap();
-                    buf.get_mut(i, j).set_bg(Color::Rgb(rgb.r, rgb.g, rgb.b));
-                }
-            }
-        }
     }
 }

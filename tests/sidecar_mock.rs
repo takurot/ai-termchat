@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -10,7 +11,10 @@ use triadchat::config::{AiConfig, AiProvider};
 
 fn write_script(dir: &TempDir, name: &str, body: &str) -> std::path::PathBuf {
     let path = dir.path().join(name);
-    fs::write(&path, body).unwrap();
+    let mut file = fs::File::create(&path).unwrap();
+    file.write_all(body.as_bytes()).unwrap();
+    file.sync_all().unwrap();
+    drop(file);
     let mut permissions = fs::metadata(&path).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&path, permissions).unwrap();
