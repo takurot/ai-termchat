@@ -23,8 +23,11 @@ fn peer_info_round_trips_through_bincode() {
         avatar: "neko".into(),
     });
 
-    let encoded = bincode::serialize(&message).expect("message should serialize");
-    let decoded: NetMessage = bincode::deserialize(&encoded).expect("message should deserialize");
+    let encoded = bincode::serde::encode_to_vec(&message, bincode::config::legacy())
+        .expect("message should serialize");
+    let (decoded, _): (NetMessage, usize) =
+        bincode::serde::decode_from_slice(&encoded, bincode::config::legacy())
+            .expect("message should deserialize");
 
     match decoded {
         NetMessage::PeerInfo(info) => {
@@ -54,9 +57,11 @@ fn room_and_skill_variants_round_trip_through_bincode() {
     });
 
     for message in [room_create, room_create_v2, room_join, skill_done] {
-        let encoded = bincode::serialize(&message).expect("message should serialize");
-        let decoded: NetMessage =
-            bincode::deserialize(&encoded).expect("message should deserialize");
+        let encoded = bincode::serde::encode_to_vec(&message, bincode::config::legacy())
+            .expect("message should serialize");
+        let (decoded, _): (NetMessage, usize) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::legacy())
+                .expect("message should deserialize");
 
         match (message, decoded) {
             (
@@ -96,9 +101,11 @@ fn legacy_room_create_bytes_remain_decodable() {
     let legacy =
         LegacyNetMessage::RoomCreate("room-1".into(), vec!["takuro".into(), "tanaka".into()]);
 
-    let encoded = bincode::serialize(&legacy).expect("legacy message should serialize");
-    let decoded: NetMessage =
-        bincode::deserialize(&encoded).expect("new decoder should accept legacy bytes");
+    let encoded = bincode::serde::encode_to_vec(&legacy, bincode::config::legacy())
+        .expect("legacy message should serialize");
+    let (decoded, _): (NetMessage, usize) =
+        bincode::serde::decode_from_slice(&encoded, bincode::config::legacy())
+            .expect("new decoder should accept legacy bytes");
 
     match decoded {
         NetMessage::RoomCreate(room_id, members) => {

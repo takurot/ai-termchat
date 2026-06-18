@@ -1,6 +1,5 @@
 use serde::Serialize;
 use crate::message::NetMessage;
-use bincode::Options;
 
 pub const MAX_FRAME_SIZE: usize = 1024 * 1024; // 1 MB
 
@@ -15,7 +14,8 @@ impl Encoder {
 
     pub fn encode<M: Serialize>(&mut self, message: M) -> &[u8] {
         self.output_buffer.clear();
-        bincode::serialize_into(&mut self.output_buffer, &message).unwrap();
+        let config = bincode::config::legacy();
+        bincode::serde::encode_into_std_write(&message, &mut self.output_buffer, config).unwrap();
         &self.output_buffer
     }
 }
@@ -24,11 +24,8 @@ pub fn decode(data_message: &[u8]) -> Option<NetMessage> {
     if data_message.len() > MAX_FRAME_SIZE {
         return None;
     }
-    let options = bincode::options()
-        .with_limit(MAX_FRAME_SIZE as u64)
-        .with_fixint_encoding()
-        .allow_trailing_bytes();
-    let msg: NetMessage = options.deserialize(data_message).ok()?;
+    let config = bincode::config::legacy().with_limit::<{MAX_FRAME_SIZE}>();
+    let (msg, _): (NetMessage, usize) = bincode::serde::decode_from_slice(data_message, config).ok()?;
     if msg.validate() {
         Some(msg)
     } else {
@@ -41,6 +38,11 @@ mod tests {
     use super::*;
     use crate::message::{AiPayload, Chunk, NetMessage, TodoItem, StructuredOutput};
 
+    fn test_serialize<M: Serialize>(msg: &M) -> Vec<u8> {
+        let config = bincode::config::legacy();
+        bincode::serde::encode_to_vec(msg, config).unwrap()
+    }
+
     #[test]
     fn test_max_frame_size_rejection() {
         let large_buffer = vec![0; MAX_FRAME_SIZE + 1];
@@ -51,7 +53,7 @@ mod tests {
     #[test]
     fn test_valid_small_message() {
         let msg = NetMessage::UserMessage("Hello".into());
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_some());
         if let Some(NetMessage::UserMessage(s)) = decoded {
@@ -64,7 +66,7 @@ mod tests {
     #[test]
     fn test_oversized_chat_message() {
         let msg = NetMessage::UserMessage("A".repeat(crate::message::MAX_CHAT_MESSAGE_LEN + 1));
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_none(), "Should reject chat message exceeding max length");
     }
@@ -73,7 +75,7 @@ mod tests {
     fn test_oversized_file_chunk() {
         let bad_chunk = Chunk::Data(vec![0; crate::message::MAX_FILE_CHUNK_LEN + 1]);
         let msg = NetMessage::UserData("file.txt".into(), bad_chunk);
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_none(), "Should reject oversized file chunk");
     }
@@ -82,7 +84,7 @@ mod tests {
     fn test_oversized_room_create_members() {
         let members = vec!["user".into(); crate::message::MAX_ROOM_MEMBERS + 1];
         let msg = NetMessage::RoomCreate("room1".into(), members);
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_none(), "Should reject RoomCreate with too many members");
     }
@@ -95,7 +97,7 @@ mod tests {
             structured: None,
         };
         let msg = NetMessage::AiMessage(payload);
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_none(), "Should reject AI message with too long text");
     }
@@ -113,8 +115,17 @@ mod tests {
             structured: Some(structured),
         };
         let msg = NetMessage::AiMessage(payload);
-        let encoded = bincode::serialize(&msg).unwrap();
+        let encoded = test_serialize(&msg);
         let decoded = decode(&encoded);
         assert!(decoded.is_none(), "Should reject AI message with too many todo items");
+    }
+
+    #[test]
+    fn test_trailing_bytes() {
+        let msg = NetMessage::UserMessage("Hello".into());
+        let mut encoded = test_serialize(&msg);
+        encoded.extend_from_slice(b"extra padding bytes");
+        let decoded = decode(&encoded);
+        assert!(decoded.is_some(), "Should allow trailing bytes!");
     }
 }

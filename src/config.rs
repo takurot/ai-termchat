@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::ArgMatches;
 use serde::{Deserialize, Serialize};
-use tui::style::Color;
+use ratatui::style::Color;
 
 use crate::util::Result;
 

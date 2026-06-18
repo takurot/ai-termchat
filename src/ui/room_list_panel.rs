@@ -1,9 +1,8 @@
-use tui::backend::Backend;
-use tui::layout::Rect;
-use tui::style::{Modifier, Style};
-use tui::text::Span;
-use tui::widgets::{Block, Borders, Paragraph};
-use tui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 use crate::room::Room;
 use crate::ui::layout::truncate;
@@ -69,11 +68,11 @@ pub fn build_room_lines(rooms: &[Room], active_id: Option<&str>, scroll: usize) 
 
 use crate::state::State;
 
-pub fn draw_room_list_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect) {
+pub fn draw_room_list_panel(frame: &mut Frame, state: &State, chunk: Rect) {
     let lines: Vec<_> =
         build_room_lines(state.rooms(), state.active_room_id(), state.room_list_scroll())
             .into_iter()
-            .map(|l| tui::text::Spans::from(Span::raw(l)))
+            .map(|l| Line::from(Span::raw(l)))
             .collect();
 
     let panel = Paragraph::new(lines).block(

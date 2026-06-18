@@ -1,6 +1,6 @@
 use triadchat::avatar::AvatarSize;
 use triadchat::ui::layout::{should_show_side_panels, three_pane_constraints};
-use tui::layout::Constraint;
+use ratatui::layout::Constraint;
 
 #[test]
 fn side_panel_visibility_and_avatar_size_change_at_same_boundary() {

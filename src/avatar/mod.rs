@@ -1,8 +1,8 @@
 pub mod builtin;
 pub mod loader;
 
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
 
 /// Logical state of an avatar subject (AI or human peer).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,16 +50,16 @@ pub trait AvatarPlugin: Send + Sync {
     /// The unique preset name (e.g. `"human_default"`, `"robot_guardian"`).
     fn preset_name(&self) -> &str;
     /// Render the avatar for the given state and size.
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>>;
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>>;
 }
 
-/// Helper to convert a 2D color grid into multi-line Spans using the "half-block" technique.
+/// Helper to convert a 2D color grid into multi-line Lines using the "half-block" technique.
 /// Each character represents two vertical pixels.
-pub fn colors_to_spans(colors: Vec<Vec<Color>>) -> Vec<Spans<'static>> {
-    let mut spans_vec = Vec::new();
+pub fn colors_to_lines(colors: Vec<Vec<Color>>) -> Vec<Line<'static>> {
+    let mut lines_vec = Vec::new();
     let height = colors.len();
     if height == 0 {
-        return spans_vec;
+        return lines_vec;
     }
     let width = colors.iter().map(|row| row.len()).max().unwrap_or(0);
 
@@ -77,9 +77,9 @@ pub fn colors_to_spans(colors: Vec<Vec<Color>>) -> Vec<Spans<'static>> {
                 (t, b) => line.push(Span::styled("▀", Style::default().fg(t).bg(b))),
             }
         }
-        spans_vec.push(Spans::from(line));
+        lines_vec.push(Line::from(line));
     }
-    spans_vec
+    lines_vec
 }
 
 /// C-compatible vtable for FFI plugin loading (`libloading`).

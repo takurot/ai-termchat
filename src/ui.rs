@@ -4,12 +4,11 @@ pub mod peers_panel;
 pub mod room_list_panel;
 pub mod status_panel;
 
-use tui::backend::Backend;
-use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph, Wrap};
-use tui::Frame;
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
 use crate::avatar::loader::AvatarManager;
@@ -23,7 +22,7 @@ use crate::ui::status_panel::draw_status_panel;
 use crate::util::split_each;
 
 pub fn draw(
-    frame: &mut Frame<impl Backend>,
+    frame: &mut Frame,
     state: &mut State,
     chunk: Rect,
     theme: &Theme,
@@ -72,7 +71,7 @@ pub fn draw(
 }
 
 fn draw_messages_panel(
-    frame: &mut Frame<impl Backend>,
+    frame: &mut Frame,
     state: &mut State,
     chunk: Rect,
     theme: &Theme,
@@ -94,12 +93,12 @@ fn draw_messages_panel(
             };
             let date = message.date.format("%H:%M:%S ").to_string();
             match &message.message_type {
-                MessageType::Connection => vec![Spans::from(vec![
+                MessageType::Connection => vec![Line::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
                     Span::styled(&message.user, Style::default().fg(color)),
                     Span::styled(ui_messages.connected, Style::default().fg(color)),
                 ])],
-                MessageType::Disconnection => vec![Spans::from(vec![
+                MessageType::Disconnection => vec![Line::from(vec![
                     Span::styled(date, Style::default().fg(theme.date_color)),
                     Span::styled(&message.user, Style::default().fg(color)),
                     Span::styled(ui_messages.disconnected, Style::default().fg(color)),
@@ -111,7 +110,7 @@ fn draw_messages_panel(
                         Span::styled(": ", Style::default().fg(color)),
                     ];
                     ui_message.extend(parse_content(content, theme, state.local_user_name()));
-                    vec![Spans::from(ui_message)]
+                    vec![Line::from(ui_message)]
                 }
                 MessageType::AiText(content) => {
                     let mut ui_message = vec![
@@ -125,7 +124,7 @@ fn draw_messages_panel(
                         }
                         ui_message.push(span);
                     }
-                    vec![Spans::from(ui_message)]
+                    vec![Line::from(ui_message)]
                 }
                 MessageType::System(content, msg_type) => {
                     let (user_color, content_color) = match msg_type {
@@ -138,7 +137,7 @@ fn draw_messages_panel(
                     let header_user = Span::styled(&message.user, Style::default().fg(user_color));
 
                     if content.is_empty() {
-                        return vec![Spans::from(vec![header_date, header_user])];
+                        return vec![Line::from(vec![header_date, header_user])];
                     }
 
                     // Calculate indentation based on date only to align with username
@@ -150,13 +149,13 @@ fn draw_messages_panel(
                         .enumerate()
                         .map(|(i, line)| {
                             if i == 0 {
-                                Spans::from(vec![
+                                Line::from(vec![
                                     header_date.clone(),
                                     header_user.clone(),
                                     Span::styled(line, Style::default().fg(content_color)),
                                 ])
                             } else {
-                                Spans::from(vec![
+                                Line::from(vec![
                                     Span::raw(indent.clone()),
                                     Span::styled(line, Style::default().fg(content_color)),
                                 ])
@@ -165,7 +164,7 @@ fn draw_messages_panel(
                         .collect::<Vec<_>>()
                 }
                 MessageType::Progress(state) => {
-                    vec![Spans::from(add_progress_bar(chunk.width, state, theme))]
+                    vec![Line::from(add_progress_bar(chunk.width, state, theme))]
                 }
             }
         })
@@ -301,12 +300,12 @@ fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> 
     }
 }
 
-fn draw_input_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect, theme: &Theme) {
+fn draw_input_panel(frame: &mut Frame, state: &State, chunk: Rect, theme: &Theme) {
     let inner_width = (chunk.width - 2) as usize;
     let input = state.input().iter().collect::<String>();
     let input = split_each(input, inner_width)
         .into_iter()
-        .map(|line| Spans::from(vec![Span::raw(line)]))
+        .map(|line| Line::from(vec![Span::raw(line)]))
         .collect::<Vec<_>>();
 
     let input_panel = Paragraph::new(input)
@@ -328,7 +327,7 @@ fn draw_input_panel(frame: &mut Frame<impl Backend>, state: &State, chunk: Rect,
 mod tests {
     use super::*;
     use crate::config::Theme;
-    use tui::style::Color;
+    use ratatui::style::Color;
 
     #[test]
     fn test_parse_content_no_mentions() {

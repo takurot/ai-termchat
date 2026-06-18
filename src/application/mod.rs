@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event as TermEvent, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event as TermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use message_io::events::EventReceiver;
 use message_io::network::{Endpoint, Transport};
 use message_io::node::{
@@ -420,17 +420,18 @@ impl<'a> Application<'a> {
                     timestamp,
                 };
 
-                let serialized = match bincode::serialize(&payload) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        self.state.add_system_error_message(format!(
-                            "Failed to serialize signature payload for {}: {}. Disconnecting.",
-                            peer.user_name, e
-                        ));
-                        self.node.network().remove(endpoint.resource_id());
-                        return;
-                    }
-                };
+                let serialized =
+                    match bincode::serde::encode_to_vec(&payload, bincode::config::legacy()) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            self.state.add_system_error_message(format!(
+                                "Failed to serialize signature payload for {}: {}. Disconnecting.",
+                                peer.user_name, e
+                            ));
+                            self.node.network().remove(endpoint.resource_id());
+                            return;
+                        }
+                    };
 
                 let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
                     &public_key.clone().try_into().unwrap_or([0u8; 32]),
@@ -518,62 +519,65 @@ impl<'a> Application<'a> {
             TermEvent::Resize(width, height) => {
                 self.state.update_chat_viewport(width, height);
             }
-            TermEvent::Key(KeyEvent { code, modifiers, .. }) => match code {
-                KeyCode::Esc => {
-                    self.node.signals().send_with_priority(Signal::Close(None));
-                }
-                KeyCode::Char(character) => {
-                    if character == 'c' && modifiers.contains(KeyModifiers::CONTROL) {
+            TermEvent::Key(KeyEvent { code, modifiers, kind: KeyEventKind::Press, .. }) => {
+                match code {
+                    KeyCode::Esc => {
                         self.node.signals().send_with_priority(Signal::Close(None));
-                    } else if self.handle_confirmation_input(character)? {
-                        // confirmation consumed the key input
-                    } else {
-                        self.state.input_write(character);
                     }
-                }
-                KeyCode::Enter => {
-                    if let Some(input) = self.state.reset_input() {
-                        self.process_input_line(input)?;
+                    KeyCode::Char(character) => {
+                        if character == 'c' && modifiers.contains(KeyModifiers::CONTROL) {
+                            self.node.signals().send_with_priority(Signal::Close(None));
+                        } else if self.handle_confirmation_input(character)? {
+                            // confirmation consumed the key input
+                        } else {
+                            self.state.input_write(character);
+                        }
                     }
-                }
-                KeyCode::Delete => self.state.input_remove(),
-                KeyCode::Backspace => self.state.input_remove_previous(),
-                KeyCode::Left => self.state.input_move_cursor(CursorMovement::Left),
-                KeyCode::Right => self.state.input_move_cursor(CursorMovement::Right),
-                KeyCode::Home => self.state.input_move_cursor(CursorMovement::Start),
-                KeyCode::End => {
-                    if !self.state.input().is_empty() {
-                        self.state.input_move_cursor(CursorMovement::End);
-                    } else {
-                        self.state.messages_scroll(ScrollMovement::End);
+                    KeyCode::Enter => {
+                        if let Some(input) = self.state.reset_input() {
+                            self.process_input_line(input)?;
+                        }
                     }
-                }
-                KeyCode::Up if modifiers.contains(KeyModifiers::ALT) => {
-                    self.state.scroll_room_list(ScrollMovement::Up);
-                }
-                KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
-                    self.state.scroll_room_list(ScrollMovement::Down);
-                }
-                KeyCode::Up => {
-                    if !self.state.input().is_empty() || self.state.in_history_mode() {
-                        self.state.input_history_prev();
-                    } else {
-                        // In chronological flow, Up scrolls towards older messages (backwards)
-                        self.state.messages_scroll(ScrollMovement::Up);
+                    KeyCode::Delete => self.state.input_remove(),
+                    KeyCode::Backspace => self.state.input_remove_previous(),
+                    KeyCode::Left => self.state.input_move_cursor(CursorMovement::Left),
+                    KeyCode::Right => self.state.input_move_cursor(CursorMovement::Right),
+                    KeyCode::Home => self.state.input_move_cursor(CursorMovement::Start),
+                    KeyCode::End => {
+                        if !self.state.input().is_empty() {
+                            self.state.input_move_cursor(CursorMovement::End);
+                        } else {
+                            self.state.messages_scroll(ScrollMovement::End);
+                        }
                     }
-                }
-                KeyCode::Down => {
-                    if self.state.in_history_mode() {
-                        self.state.input_history_next();
-                    } else {
-                        // In chronological flow, Down scrolls towards newer messages (forwards)
-                        self.state.messages_scroll(ScrollMovement::Down);
+                    KeyCode::Up if modifiers.contains(KeyModifiers::ALT) => {
+                        self.state.scroll_room_list(ScrollMovement::Up);
                     }
+                    KeyCode::Down if modifiers.contains(KeyModifiers::ALT) => {
+                        self.state.scroll_room_list(ScrollMovement::Down);
+                    }
+                    KeyCode::Up => {
+                        if !self.state.input().is_empty() || self.state.in_history_mode() {
+                            self.state.input_history_prev();
+                        } else {
+                            // In chronological flow, Up scrolls towards older messages (backwards)
+                            self.state.messages_scroll(ScrollMovement::Up);
+                        }
+                    }
+                    KeyCode::Down => {
+                        if self.state.in_history_mode() {
+                            self.state.input_history_next();
+                        } else {
+                            // In chronological flow, Down scrolls towards newer messages (forwards)
+                            self.state.messages_scroll(ScrollMovement::Down);
+                        }
+                    }
+                    KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
+                    KeyCode::PageDown => self.state.messages_scroll(ScrollMovement::End),
+                    _ => {}
                 }
-                KeyCode::PageUp => self.state.messages_scroll(ScrollMovement::Start),
-                KeyCode::PageDown => self.state.messages_scroll(ScrollMovement::End),
-                _ => {}
-            },
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -940,7 +944,9 @@ impl<'a> Application<'a> {
                     let art_spans = self.avatar_manager.render(&preset, AvatarState::Online, size);
                     let art = art_spans
                         .iter()
-                        .map(|spans| spans.0.iter().map(|s| s.content.as_ref()).collect::<String>())
+                        .map(|spans| {
+                            spans.spans.iter().map(|s| s.content.as_ref()).collect::<String>()
+                        })
                         .collect::<Vec<_>>()
                         .join("\n");
                     self.state.add_system_info_message(format!("{}\n{}", label, art));
@@ -1385,7 +1391,7 @@ impl<'a> Application<'a> {
             server_port,
             timestamp,
         };
-        if let Ok(serialized) = bincode::serialize(&payload) {
+        if let Ok(serialized) = bincode::serde::encode_to_vec(&payload, bincode::config::legacy()) {
             use ed25519_dalek::Signer;
             let signature = self.signing_key.sign(&serialized).to_bytes().to_vec();
             let public_key = self.signing_key.verifying_key().to_bytes().to_vec();
