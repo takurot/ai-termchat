@@ -95,3 +95,95 @@ pub enum NetMessage {
     RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
 }
+
+pub const MAX_NAME_LEN: usize = 256;
+pub const MAX_CHAT_MESSAGE_LEN: usize = 65536; // 64 KB
+pub const MAX_FILE_NAME_LEN: usize = 256;
+pub const MAX_FILE_CHUNK_LEN: usize = 65536; // 64 KB
+pub const MAX_AI_TEXT_LEN: usize = 524288; // 512 KB
+pub const MAX_TODO_ITEMS: usize = 256;
+pub const MAX_TODO_TEXT_LEN: usize = 4096;
+pub const MAX_DECISIONS: usize = 256;
+pub const MAX_DECISION_TEXT_LEN: usize = 4096;
+pub const MAX_SKILL_SUGGESTIONS: usize = 256;
+pub const MAX_SKILL_NAME_LEN: usize = 128;
+pub const MAX_VERSION_LEN: usize = 64;
+pub const MAX_AVATAR_LEN: usize = 65536; // 64 KB
+pub const MAX_ROOM_ID_LEN: usize = 256;
+pub const MAX_ROOM_MEMBERS: usize = 256;
+pub const MAX_SKILL_SUMMARY_LEN: usize = 65536; // 64 KB
+
+impl TodoItem {
+    pub fn validate(&self) -> bool {
+        self.text.len() <= MAX_TODO_TEXT_LEN
+            && self.assignee.as_ref().is_none_or(|a| a.len() <= MAX_NAME_LEN)
+    }
+}
+
+impl StructuredOutput {
+    pub fn validate(&self) -> bool {
+        self.todos.len() <= MAX_TODO_ITEMS
+            && self.todos.iter().all(|t| t.validate())
+            && self.decisions.len() <= MAX_DECISIONS
+            && self.decisions.iter().all(|d| d.len() <= MAX_DECISION_TEXT_LEN)
+            && self.skill_suggestions.len() <= MAX_SKILL_SUGGESTIONS
+            && self.skill_suggestions.iter().all(|s| s.len() <= MAX_SKILL_NAME_LEN)
+            && self.raw_text.as_ref().is_none_or(|r| r.len() <= MAX_AI_TEXT_LEN)
+    }
+}
+
+impl AiPayload {
+    pub fn validate(&self) -> bool {
+        self.text.len() <= MAX_AI_TEXT_LEN && self.structured.as_ref().is_none_or(|s| s.validate())
+    }
+}
+
+impl SkillResultPayload {
+    pub fn validate(&self) -> bool {
+        self.skill_name.len() <= MAX_SKILL_NAME_LEN && self.summary.len() <= MAX_SKILL_SUMMARY_LEN
+    }
+}
+
+impl PeerInfo {
+    pub fn validate(&self) -> bool {
+        self.user_name.len() <= MAX_NAME_LEN
+            && self.node_version.len() <= MAX_VERSION_LEN
+            && self.avatar.len() <= MAX_AVATAR_LEN
+    }
+}
+
+impl Chunk {
+    pub fn validate(&self) -> bool {
+        match self {
+            Chunk::Data(data) => data.len() <= MAX_FILE_CHUNK_LEN,
+            Chunk::Error | Chunk::End => true,
+        }
+    }
+}
+
+impl NetMessage {
+    pub fn validate(&self) -> bool {
+        match self {
+            NetMessage::HelloLan(name, _) => name.len() <= MAX_NAME_LEN,
+            NetMessage::HelloUser(name) => name.len() <= MAX_NAME_LEN,
+            NetMessage::UserMessage(msg) => msg.len() <= MAX_CHAT_MESSAGE_LEN,
+            NetMessage::UserData(filename, chunk) => {
+                filename.len() <= MAX_FILE_NAME_LEN && chunk.validate()
+            }
+            NetMessage::AiMessage(payload) => payload.validate(),
+            NetMessage::PeerInfo(info) => info.validate(),
+            NetMessage::RoomCreate(room_id, members) => {
+                room_id.len() <= MAX_ROOM_ID_LEN
+                    && members.len() <= MAX_ROOM_MEMBERS
+                    && members.iter().all(|m| m.len() <= MAX_NAME_LEN)
+            }
+            NetMessage::RoomCreateV2 { room_id, members, ai_mode: _ } => {
+                room_id.len() <= MAX_ROOM_ID_LEN
+                    && members.len() <= MAX_ROOM_MEMBERS
+                    && members.iter().all(|m| m.len() <= MAX_NAME_LEN)
+            }
+            NetMessage::RoomJoin(room_id) => room_id.len() <= MAX_ROOM_ID_LEN,
+            NetMessage::SkillResult(payload) => payload.validate(),
+        }
+    }
+}
