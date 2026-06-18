@@ -85,7 +85,7 @@ For a specified GitHub Issue `#N`, execute the following workflow autonomously f
 ### 2. Review and Refine the Plan
 
 - Send the draft plan to independent read-only sub-agents before implementation.
-- Instruct reviewers to leverage specialized skills (e.g., `plan-architecture`, `review`, and `security-review`) to evaluate the draft.
+- Instruct reviewers to leverage specialized skills (e.g., `plan-architecture`, `review`, and `security-review`) to evaluate the draft by explicitly requesting these skills in the sub-agent's prompt context.
 - Cover at least these perspectives, combining roles only for a genuinely small change:
   - architecture, dependencies, compatibility, and unnecessary complexity;
   - correctness, edge cases, regression risk, and TDD/E2E coverage;
@@ -105,7 +105,7 @@ For a specified GitHub Issue `#N`, execute the following workflow autonomously f
 
 ### 4. Publish the Pull Request
 
-- Run formatting (`cargo fmt`) and linting (`cargo clippy`) locally to ensure zero diffs on style. Specifically verify that formatting rules (such as putting small expressions on a single line like `validate` logic) are fully applied to avoid CI `Format` job failures.
+- Run formatting (`cargo fmt`) and verify with `cargo fmt --check`, and run linting (`cargo clippy`) locally to ensure zero diffs on style. Specifically verify that formatting rules (such as putting small expressions on a single line like `validate` logic) are fully applied to avoid CI `Format` job failures.
 - Review the final diff for scope, generated files, debug artifacts, secrets, and unrelated changes.
 - Create a conventional commit, push the Issue branch, and open a PR that links the Issue with `Closes #N`.
 - Include the refined plan, acceptance-criteria checklist, verification evidence, E2E results, risks, and any intentional limitations in the PR description.
@@ -182,7 +182,7 @@ For every task:
 - **State Mutation:** All state changes must go through methods on `AppState` in `src/state.rs`.
 - **Async Safety:** AI and Skill tasks must be spawned on the custom `tokio` runtime; never block the `message-io` event loop.
 - **Claude Code Integration:** Use `SidecarAdapter` for all `claude -p` interactions with a 30s timeout.
-- **Python Dependency Management:** If a task requires managing Python packages, always use `pybun` (`/Users/takurot/Library/Python/3.14/bin/pybun`) instead of standard `pip` or `venv`.
+- **Python Dependency Management:** If a task requires managing Python packages, always use `pybun` (preferring the system PATH, and falling back to `/Users/takurot/Library/Python/3.14/bin/pybun` if not globally available) instead of standard `pip` or `venv`.
 - **Format Consistency:** Always run `cargo fmt` before staging files. Ensure complex expressions or helper functions adhere to the cargo format style (e.g. avoiding unnecessary multi-line breaks for short logic statements) to prevent CI Format check failures.
 
 ## Verification Policy
