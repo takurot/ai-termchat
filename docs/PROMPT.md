@@ -60,6 +60,8 @@ cargo test --lib
 
 At each scheduling point, build a candidate list from open GitHub Issues and incomplete `docs/PLAN.md` tasks.
 
+When the user specifies an Issue number, that Issue is the required scope. Do not replace it with another Issue based on the general priority rules. Read the Issue body, comments, labels, linked PRs, and dependencies before planning.
+
 Prefer GitHub Issues when:
 - Issues include security, bug, or specific Phase 1/2 implementation gaps.
 - The Issue has clear acceptance criteria (e.g., "Verify /summary works on 2 nodes").
@@ -67,6 +69,72 @@ Prefer GitHub Issues when:
 Use `docs/PLAN.md` directly when:
 - Bootstrapping a new Phase or PR (e.g., moving from Phase 0 PoC to Phase 1 MVP).
 - Sequencing tasks based on the dependency graph (PR-01 -> PR-02 -> ...).
+
+## Specified Issue End-to-End Workflow
+
+For a specified GitHub Issue `#N`, execute the following workflow autonomously from planning through merge. Do not stop after producing a plan, implementing locally, opening a PR, or posting review findings. Continue until the PR is merged unless a documented external blocker makes further progress impossible.
+
+### 1. Inspect and Plan
+
+- Fetch Issue `#N` and its discussion with `gh`; confirm that it is open, not superseded, and not blocked by an unmet dependency.
+- Inspect the relevant code, tests, `docs/SPEC.md`, and `docs/PLAN.md`. Treat the current tested behavior as the baseline.
+- Create an Issue-specific branch and isolated worktree when the current checkout is dirty or parallel work could conflict.
+- Write an implementation plan that identifies scope, assumptions, acceptance criteria, affected files and interfaces, dependencies, risks, test cases, E2E coverage, and required documentation updates.
+- Resolve ambiguities from repository evidence where possible. Ask the user only when a product decision cannot be inferred safely or the requested action would be destructive.
+
+### 2. Review and Refine the Plan
+
+- Send the draft plan to independent read-only sub-agents before implementation.
+- Instruct reviewers to leverage specialized skills (e.g., `plan-architecture`, `review`, and `security-review`) to evaluate the draft by explicitly requesting these skills in the sub-agent's prompt context.
+- Cover at least these perspectives, combining roles only for a genuinely small change:
+  - architecture, dependencies, compatibility, and unnecessary complexity;
+  - correctness, edge cases, regression risk, and TDD/E2E coverage;
+  - security, validation, concurrency, data integrity, and operational risk where applicable;
+  - Issue acceptance criteria, user-visible behavior, and documentation completeness.
+- Require reviewers to identify concrete omissions, contradictions, and unverifiable steps rather than merely approve the plan.
+- Reconcile conflicting feedback, record any rejected recommendation with a reason, and update the plan. The primary agent owns the final plan and integration decisions.
+- Begin implementation only after the refined plan has explicit verification steps for every acceptance criterion.
+
+### 3. Implement with TDD
+
+- Follow red-green-refactor for each behavioral unit: add a failing test, make the smallest implementation pass, then clean up without changing behavior.
+- Add regression tests for bugs and integration/E2E tests for user-visible or cross-component flows.
+- Keep changes within the Issue scope. Update `docs/SPEC.md`, `docs/PLAN.md`, and user-facing documentation when behavior or contracts change.
+- Run focused tests during development and the full local verification suite before publishing.
+- Prefer `scripts/dev-workflow.sh <reviewed-plan> "<task>" N` when it fits the task, but do not skip any mandatory step in this contract when automation is unavailable or incomplete.
+
+### 4. Publish the Pull Request
+
+- Run formatting (`cargo fmt`) and verify with `cargo fmt --check`, and run linting (`cargo clippy`) locally to ensure zero diffs on style. Specifically verify that formatting rules (such as putting small expressions on a single line like `validate` logic) are fully applied to avoid CI `Format` job failures.
+- Review the final diff for scope, generated files, debug artifacts, secrets, and unrelated changes.
+- Create a conventional commit, push the Issue branch, and open a PR that links the Issue with `Closes #N`.
+- Include the refined plan, acceptance-criteria checklist, verification evidence, E2E results, risks, and any intentional limitations in the PR description.
+
+### 5. Perform Multi-Perspective PR Review
+
+- After the PR exists, assign independent read-only sub-agents to review the actual PR diff, not the intended plan alone.
+- Review from correctness/regression, architecture/maintainability, test/E2E, security/data-safety, and documentation/operability perspectives as applicable.
+- Require findings-first output with severity, rationale, concrete file and line references, and a proposed remediation or missing test.
+- Deduplicate and validate findings against the source before posting them. Post all valid actionable findings to the PR; if no issues are found, post an explicit approval summary with the checks performed.
+
+### 6. Remediate and Re-Review
+
+- Address every valid actionable finding. Add or strengthen regression tests before fixing behavioral defects.
+- For rejected or deferred findings, post a concrete technical rationale and confirm that deferral does not violate the Issue acceptance criteria.
+- Commit and push remediation changes, then re-run affected reviewers when the fix changes behavior, security boundaries, shared interfaces, or test strategy.
+- Repeat review and remediation until there are no unresolved blocking findings.
+
+### 7. Verify CI and Merge
+
+- Run formatting (`cargo fmt`), linting (`cargo clippy`), unit tests, integration tests, security checks, and relevant E2E scenarios locally. Always ensure formatting rules are perfectly applied locally before checking CI.
+- Monitor all required CI checks. For deterministic failures, diagnose, fix, commit, push, and monitor CI again rather than stopping at the failure report.
+- Before merging, confirm the PR is mergeable, required approvals are present, the branch is current enough for repository policy, all required checks are green, and no blocking review thread remains unresolved.
+- Merge using the repository's standard strategy, verify the merged state, and close the Issue if GitHub did not close it automatically.
+- Remove the merged worktree and branch when safe. Preserve unrelated user changes.
+
+### Allowed Stop Conditions
+
+Stop and report the blocker only when progress requires unavailable credentials or infrastructure (e.g., GitHub `gh` CLI authentication errors), an unresolved external dependency, a destructive decision requiring authorization, or a product decision that cannot be inferred safely. Record the exact blocker and completed evidence in the Issue or PR so execution can resume without repeating work.
 
 ## Priority Rules
 
@@ -109,10 +177,13 @@ Before creating a worktree:
 
 For every task:
 - **Test First:** Write unit tests in `src/` or integration tests in `tests/` before implementation.
+- **Surgical Changes:** Follow the guidelines in AGENTS.md. Touch only what you must. Do not "improve" or refactor adjacent code, comments, or formatting unless requested.
 - **No Unwraps:** Never use `unwrap()` or `expect()` in production paths. Use `anyhow` for app-level errors and `thiserror` for library-level errors.
 - **State Mutation:** All state changes must go through methods on `AppState` in `src/state.rs`.
 - **Async Safety:** AI and Skill tasks must be spawned on the custom `tokio` runtime; never block the `message-io` event loop.
 - **Claude Code Integration:** Use `SidecarAdapter` for all `claude -p` interactions with a 30s timeout.
+- **Python Dependency Management:** If a task requires managing Python packages, always use `pybun` (preferring the system PATH, and falling back to `/Users/takurot/Library/Python/3.14/bin/pybun` if not globally available) instead of standard `pip` or `venv`.
+- **Format Consistency:** Always run `cargo fmt` before staging files. Ensure complex expressions or helper functions adhere to the cargo format style (e.g. avoiding unnecessary multi-line breaks for short logic statements) to prevent CI Format check failures.
 
 ## Verification Policy
 
