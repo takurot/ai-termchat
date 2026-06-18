@@ -54,6 +54,57 @@ impl Config {
         Some(Self::config_file_path_with_base(dirs_next::config_dir()?))
     }
 
+    pub fn identity_key_path_with_base(base: impl AsRef<std::path::Path>) -> PathBuf {
+        Self::config_dir_path_with_base(base).join("identity.key")
+    }
+
+    pub fn identity_key_path() -> Option<PathBuf> {
+        Some(Self::identity_key_path_with_base(dirs_next::config_dir()?))
+    }
+
+    pub fn get_or_create_identity_keypair() -> anyhow::Result<ed25519_dalek::SigningKey> {
+        Self::get_or_create_identity_keypair_with_base(
+            dirs_next::config_dir()
+                .ok_or_else(|| anyhow::anyhow!("could not locate config directory"))?,
+        )
+    }
+
+    pub fn get_or_create_identity_keypair_with_base(
+        base: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<ed25519_dalek::SigningKey> {
+        let config_dir = Self::config_dir_path_with_base(&base);
+        std::fs::create_dir_all(&config_dir)?;
+        let key_path = Self::identity_key_path_with_base(&base);
+        if key_path.exists() {
+            let seed = std::fs::read(&key_path)?;
+            if seed.len() != 32 {
+                return Err(anyhow::anyhow!(
+                    "Invalid identity key file length: expected 32 bytes, got {}",
+                    seed.len()
+                ));
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&seed);
+            Ok(ed25519_dalek::SigningKey::from_bytes(&arr))
+        } else {
+            use rand::rngs::OsRng;
+            let signing_key = ed25519_dalek::SigningKey::generate(&mut OsRng);
+            let seed = signing_key.to_bytes();
+
+            let mut options = std::fs::OpenOptions::new();
+            options.create(true).write(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            use std::io::Write;
+            let mut file = options.open(&key_path)?;
+            file.write_all(&seed)?;
+            Ok(signing_key)
+        }
+    }
+
     fn from_config_file() -> Option<Self> {
         let config_dir_path = Self::config_dir_path()?;
         if let Err(error) = std::fs::create_dir_all(&config_dir_path) {

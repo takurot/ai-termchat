@@ -26,10 +26,18 @@ fn test_path_traversal_prevention() {
         Chunk::Data(b"win".to_vec()),
         "sender_traversal",
     );
-    app.inject_receive_chunk_for_test("foo\\bar\\win_traversal.txt", Chunk::End, "sender_traversal");
+    app.inject_receive_chunk_for_test(
+        "foo\\bar\\win_traversal.txt",
+        Chunk::End,
+        "sender_traversal",
+    );
 
     // 3. Absolute path
-    app.inject_receive_chunk_for_test("/etc/passwd", Chunk::Data(b"absolute".to_vec()), "sender_traversal");
+    app.inject_receive_chunk_for_test(
+        "/etc/passwd",
+        Chunk::Data(b"absolute".to_vec()),
+        "sender_traversal",
+    );
     app.inject_receive_chunk_for_test("/etc/passwd", Chunk::End, "sender_traversal");
 
     assert!(download_dir.join("traversal.txt").exists());
@@ -50,11 +58,19 @@ fn test_atomic_collision_resolution() {
     let _ = std::fs::remove_dir_all(&download_dir);
 
     // Transfer file first time
-    app.inject_receive_chunk_for_test("collision.txt", Chunk::Data(b"first".to_vec()), "sender_collision");
+    app.inject_receive_chunk_for_test(
+        "collision.txt",
+        Chunk::Data(b"first".to_vec()),
+        "sender_collision",
+    );
     app.inject_receive_chunk_for_test("collision.txt", Chunk::End, "sender_collision");
 
     // Transfer same file second time
-    app.inject_receive_chunk_for_test("collision.txt", Chunk::Data(b"second".to_vec()), "sender_collision");
+    app.inject_receive_chunk_for_test(
+        "collision.txt",
+        Chunk::Data(b"second".to_vec()),
+        "sender_collision",
+    );
     app.inject_receive_chunk_for_test("collision.txt", Chunk::End, "sender_collision");
 
     assert!(download_dir.join("collision.txt").exists());

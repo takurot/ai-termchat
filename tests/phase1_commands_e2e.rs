@@ -176,6 +176,7 @@ fn run_proposal_from_untrusted_remote_peer_is_permission_denied() {
     let config = config_with_ai_script(&script, "takuro");
 
     let mut takuro = Application::new_for_test_in_workspace(&config, workspace.path()).unwrap();
+    takuro.inject_authenticated_peer_for_test("tanaka", "fp:tanaka:test");
 
     let payload = AiPayload {
         text: "review-auth suggested".into(),

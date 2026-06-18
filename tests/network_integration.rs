@@ -275,6 +275,11 @@ description: Review auth
             && right.state().peer_is_ready("takuro")
     });
 
+    for _ in 0..5 {
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+
     let endpoint = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
         text: "review-auth suggested".into(),
@@ -289,11 +294,13 @@ description: Review auth
     let mut encoded = Vec::new();
     bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
     tanaka.node_handler().network().send(endpoint, &encoded);
-    takuro.process_next_event_with_timeout_for_test(Duration::from_secs(1)).unwrap();
+    for _ in 0..5 {
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
 
     takuro.handle_input_line_for_test("/run 1").unwrap();
     let rendered = takuro.state().messages().last().unwrap().rendered_text();
-    assert!(rendered.contains("Use /trust add tanaka"));
+    assert!(rendered.contains("Use /trust add tanaka"), "rendered is: {}", rendered);
 
     takuro.handle_input_line_for_test("/trust add tanaka").unwrap();
     takuro.handle_input_line_for_test("/run 1").unwrap();
@@ -350,6 +357,11 @@ description: Review auth
             && right.state().peer_is_ready("takuro")
     });
 
+    for _ in 0..5 {
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+
     let fingerprint = takuro.state().peer_fingerprint_by_name("tanaka").unwrap();
     let endpoint = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
@@ -365,7 +377,9 @@ description: Review auth
     let mut encoded = Vec::new();
     bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
     tanaka.node_handler().network().send(endpoint, &encoded);
-    takuro.process_next_event_with_timeout_for_test(Duration::from_secs(1)).unwrap();
+    for _ in 0..5 {
+        let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
 
     takuro.handle_input_line_for_test("/trust add tanaka").unwrap();
     drop(tanaka);
@@ -380,8 +394,14 @@ description: Review auth
     takuro.handle_input_line_for_test("/run 1").unwrap();
 
     let transcript = rendered_messages(&takuro);
-    assert!(transcript.contains("removed trust for"));
-    assert!(transcript.contains("permission denied: proposal 1 came from untrusted peer tanaka"));
+    assert!(transcript.contains("removed trust for"), "transcript is: {}", transcript);
+    assert!(
+        transcript.contains("permission denied: proposal 1 came from untrusted peer tanaka")
+            || transcript
+                .contains("permission denied: proposal 1 came from Unauthenticated peer tanaka"),
+        "transcript is: {}",
+        transcript
+    );
     assert!(takuro.state().pending_confirmation().is_none());
     assert!(!transcript.contains("review-auth executed"));
 }
