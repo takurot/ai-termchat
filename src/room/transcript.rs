@@ -72,10 +72,21 @@ impl TranscriptWriter {
         Self::open_with_base(base, room_id)
     }
 
+    pub fn sanitize_room_id(room_id: &str) -> String {
+        let sanitized: String =
+            room_id.chars().filter(|&c| c.is_alphanumeric() || c == '-' || c == '_').collect();
+        if sanitized.is_empty() {
+            "safe_room".to_string()
+        } else {
+            sanitized
+        }
+    }
+
     pub fn open_with_base(base: impl AsRef<Path>, room_id: &str) -> Result<Self> {
         let dir = Self::transcript_dir(base);
         std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{room_id}.jsonl"));
+        let safe_id = Self::sanitize_room_id(room_id);
+        let path = dir.join(format!("{safe_id}.jsonl"));
         let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { file, path })
     }

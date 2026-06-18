@@ -152,7 +152,7 @@ fn send_file() {
 
     sender.handle_input_line_for_test(&format!("/send {}", test_path.display())).unwrap();
 
-    let received_path = std::env::temp_dir().join("triadchat").join("1").join("test");
+    let received_path = std::env::temp_dir().join("triadchat/downloads").join("1").join("test");
     let expected_len = data.len() as u64;
     pump_until(&mut sender, &mut receiver, Duration::from_secs(20), |_, _| {
         std::fs::metadata(&received_path).map(|meta| meta.len() == expected_len).unwrap_or(false)
