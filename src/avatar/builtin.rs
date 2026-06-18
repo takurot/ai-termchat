@@ -1,6 +1,6 @@
-use super::{AvatarPlugin, AvatarSize, AvatarState, colors_to_spans};
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans};
+use super::{AvatarPlugin, AvatarSize, AvatarState, colors_to_lines};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
 
 // ─── human_default ────────────────────────────────────────────────────────────
 
@@ -11,7 +11,7 @@ impl AvatarPlugin for HumanDefault {
         "human_default"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         let color = Color::Cyan;
         match size {
             AvatarSize::Compact => {
@@ -22,7 +22,7 @@ impl AvatarPlugin for HumanDefault {
                     AvatarState::Offline | AvatarState::Disabled | AvatarState::Failed => "[H]○",
                     _ => "[H]·",
                 };
-                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+                vec![Line::from(Span::styled(text, Style::default().fg(color)))]
             }
             AvatarSize::Normal => {
                 let art: &'static str = match state {
@@ -35,7 +35,7 @@ impl AvatarPlugin for HumanDefault {
                     _ => " (o_o)\n  |H|\n  / \\",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
             AvatarSize::Expressive => {
@@ -53,7 +53,7 @@ impl AvatarPlugin for HumanDefault {
                     _ => "  .-\"\"-.\n ( o_o )\n  \\|H|/\n  / | \\\n /  |  \\",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
         }
@@ -99,7 +99,7 @@ impl AvatarPlugin for AiDefault {
         "ai_default"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         match size {
             AvatarSize::Compact => {
                 let (text, color) = match state {
@@ -110,9 +110,9 @@ impl AvatarPlugin for AiDefault {
                     AvatarState::Failed => ("[AI]✗", Color::Red),
                     _ => ("[AI]·", Color::Gray),
                 };
-                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+                vec![Line::from(Span::styled(text, Style::default().fg(color)))]
             }
-            AvatarSize::Normal | AvatarSize::Expressive => colors_to_spans(self.get_grid(state)),
+            AvatarSize::Normal | AvatarSize::Expressive => colors_to_lines(self.get_grid(state)),
         }
     }
 }
@@ -131,7 +131,7 @@ impl AvatarPlugin for RobotGuardian {
         "robot_guardian"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         let color = Color::Yellow;
         match size {
             AvatarSize::Compact => {
@@ -145,7 +145,7 @@ impl AvatarPlugin for RobotGuardian {
                     AvatarState::Away => "[RG]◇",
                     AvatarState::Offline => "[RG]□",
                 };
-                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+                vec![Line::from(Span::styled(text, Style::default().fg(color)))]
             }
             AvatarSize::Normal => {
                 let art: &'static str = match state {
@@ -159,7 +159,7 @@ impl AvatarPlugin for RobotGuardian {
                     AvatarState::Offline => " <| |>\n [RG]\n  /|\\",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
             AvatarSize::Expressive => {
@@ -176,7 +176,7 @@ impl AvatarPlugin for RobotGuardian {
                     AvatarState::Offline => " ┌─────┐\n │ | | │\n │[RG] │\n └──┬──┘\n   /|\\",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
         }
@@ -197,7 +197,7 @@ impl AvatarPlugin for ClaudeAvatar {
         "claude"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         let color = Color::LightMagenta;
         match size {
             AvatarSize::Compact => {
@@ -211,7 +211,7 @@ impl AvatarPlugin for ClaudeAvatar {
                     AvatarState::Away => "◈(-ω-)",
                     AvatarState::Offline => "○(._.)",
                 };
-                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+                vec![Line::from(Span::styled(text, Style::default().fg(color)))]
             }
             AvatarSize::Normal => {
                 let art: &'static str = match state {
@@ -225,7 +225,7 @@ impl AvatarPlugin for ClaudeAvatar {
                     AvatarState::Offline => " (._. )\n╰[claude]╯\n  /   \\",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
             AvatarSize::Expressive => {
@@ -252,7 +252,7 @@ impl AvatarPlugin for ClaudeAvatar {
                     }
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
         }
@@ -273,7 +273,7 @@ impl AvatarPlugin for NekoAvatar {
         "neko"
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         let color = Color::LightRed;
         match size {
             AvatarSize::Compact => {
@@ -286,7 +286,7 @@ impl AvatarPlugin for NekoAvatar {
                     AvatarState::Disabled => "=^・ー・^=",
                     AvatarState::Failed => "=^×_×^=",
                 };
-                vec![Spans::from(Span::styled(text, Style::default().fg(color)))]
+                vec![Line::from(Span::styled(text, Style::default().fg(color)))]
             }
             AvatarSize::Normal => {
                 let art: &'static str = match state {
@@ -299,7 +299,7 @@ impl AvatarPlugin for NekoAvatar {
                     AvatarState::Failed => " /\\_/\\\n( ×_× )\n > !! <",
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
             AvatarSize::Expressive => {
@@ -327,7 +327,7 @@ impl AvatarPlugin for NekoAvatar {
                     }
                 };
                 art.lines()
-                    .map(|l| Spans::from(Span::styled(l, Style::default().fg(color))))
+                    .map(|l| Line::from(Span::styled(l, Style::default().fg(color))))
                     .collect()
             }
         }
@@ -347,12 +347,12 @@ pub fn all_builtins() -> Vec<Box<dyn AvatarPlugin>> {
 }
 
 /// Render the `human_default` avatar without a heap allocation.
-pub fn render_human(state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+pub fn render_human(state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
     HumanDefault.render(state, size)
 }
 
 /// Render the `ai_default` avatar without a heap allocation.
-pub fn render_ai(state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+pub fn render_ai(state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
     AiDefault.render(state, size)
 }
 

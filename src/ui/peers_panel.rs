@@ -1,9 +1,8 @@
-use tui::backend::Backend;
-use tui::layout::Rect;
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph};
-use tui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::{AvatarSize, AvatarState};
@@ -16,26 +15,26 @@ use crate::ui::layout::truncate;
 /// When the terminal is too narrow this function should not be called — the
 /// caller is responsible for the visibility decision (see `layout::should_show_side_panels`).
 pub fn draw_peers_panel(
-    frame: &mut Frame<impl Backend>,
+    frame: &mut Frame,
     state: &State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
 ) {
-    let mut lines: Vec<Spans> =
-        vec![Spans::from(Span::styled("Peers", Style::default().add_modifier(Modifier::BOLD)))];
+    let mut lines: Vec<Line> =
+        vec![Line::from(Span::styled("Peers", Style::default().add_modifier(Modifier::BOLD)))];
 
     // Local user
     let local_av_lines =
         avatar_manager.render(&state.user_avatar, AvatarState::Online, AvatarSize::Compact);
     let local_av = local_av_lines.first().cloned().unwrap_or_default();
 
-    let mut local_user_spans = local_av.0;
+    let mut local_user_spans = local_av.spans;
     local_user_spans.push(Span::raw(" "));
     local_user_spans.push(Span::styled(
         truncate(state.local_user_name(), 10),
         Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
     ));
-    lines.push(Spans::from(local_user_spans));
+    lines.push(Line::from(local_user_spans));
 
     let remote_peers = state.peer_info_list();
     let remote_peer_count = remote_peers.len();
@@ -45,15 +44,15 @@ pub fn draw_peers_panel(
         let av_lines = avatar_manager.render(preset, AvatarState::Online, AvatarSize::Compact);
         let av = av_lines.first().cloned().unwrap_or_default();
 
-        let mut peer_spans = av.0;
+        let mut peer_spans = av.spans;
         peer_spans.push(Span::raw(" "));
         peer_spans
             .push(Span::styled(truncate(&peer_name, 10), Style::default().fg(Color::LightGreen)));
-        lines.push(Spans::from(peer_spans));
+        lines.push(Line::from(peer_spans));
     }
 
     if remote_peer_count == 0 {
-        lines.push(Spans::from(Span::styled(
+        lines.push(Line::from(Span::styled(
             "(no other peers)",
             Style::default().fg(Color::DarkGray),
         )));

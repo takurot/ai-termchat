@@ -65,10 +65,10 @@ fn presence_states_change_human_facing_builtin_avatars() {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-fn render_text(rendered: &[tui::text::Spans<'static>]) -> String {
+fn render_text(rendered: &[ratatui::text::Line<'static>]) -> String {
     rendered
         .iter()
-        .map(|line| line.0.iter().map(|span| span.content.as_ref()).collect::<String>())
+        .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
 }

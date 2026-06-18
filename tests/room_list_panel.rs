@@ -147,7 +147,7 @@ fn left_column_constraints_has_two_entries() {
 
 #[test]
 fn left_column_rooms_floor_is_8_for_short_terminals() {
-    use tui::layout::Constraint;
+    use ratatui::layout::Constraint;
     use triadchat::ui::layout::left_column_constraints;
     let c = left_column_constraints(20);
     assert_eq!(c[1], Constraint::Length(8));
@@ -155,7 +155,7 @@ fn left_column_rooms_floor_is_8_for_short_terminals() {
 
 #[test]
 fn left_column_rooms_scales_for_tall_terminals() {
-    use tui::layout::Constraint;
+    use ratatui::layout::Constraint;
     use triadchat::ui::layout::left_column_constraints;
     let c = left_column_constraints(50);
     assert_eq!(c[1], Constraint::Length(50 * 2 / 5));
@@ -163,7 +163,7 @@ fn left_column_rooms_scales_for_tall_terminals() {
 
 #[test]
 fn left_column_rooms_clamped_for_very_short_terminals() {
-    use tui::layout::Constraint;
+    use ratatui::layout::Constraint;
     use triadchat::ui::layout::left_column_constraints;
     // height=4 is less than the 8-row floor — must not request more than available
     let c = left_column_constraints(4);

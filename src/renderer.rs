@@ -7,8 +7,8 @@ use crate::util::Result;
 use crossterm::terminal;
 use crossterm::ExecutableCommand;
 
-use tui::backend::CrosstermBackend;
-use tui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 use tracing::warn;
 
 use std::io::Write;

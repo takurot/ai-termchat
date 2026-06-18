@@ -1,9 +1,8 @@
-use tui::backend::Backend;
-use tui::layout::{Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Paragraph};
-use tui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::AvatarState;
@@ -13,7 +12,7 @@ use crate::ui::layout::truncate;
 
 /// Draws the ops-ai status panel below chat.
 pub fn draw_status_panel(
-    frame: &mut Frame<impl Backend>,
+    frame: &mut Frame,
     state: &State,
     chunk: Rect,
     avatar_manager: &AvatarManager,
@@ -41,18 +40,18 @@ pub fn draw_status_panel(
     // AI avatar
     left_lines.extend(av_art);
 
-    left_lines.push(Spans::from(vec![
+    left_lines.push(Line::from(vec![
         Span::styled("Mode: ", Style::default().fg(Color::Gray)),
         Span::styled(
             format_ai_mode(&state.ai_mode),
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ),
     ]));
-    left_lines.push(Spans::from(vec![Span::styled(
+    left_lines.push(Line::from(vec![Span::styled(
         format!("[{}]", format_ai_provider(&state.ai_provider)),
         Style::default().fg(Color::DarkGray),
     )]));
-    left_lines.push(Spans::from(vec![
+    left_lines.push(Line::from(vec![
         Span::styled("State: ", Style::default().fg(Color::Gray)),
         Span::styled(
             format_ai_state_with_width(&state.ai_state, left_chunk.width),
@@ -66,7 +65,7 @@ pub fn draw_status_panel(
     let mut right_lines = Vec::new();
     let proposals = state.skill_proposals();
     if !proposals.is_empty() {
-        right_lines.push(Spans::from(vec![
+        right_lines.push(Line::from(vec![
             Span::styled(
                 "Proposals ",
                 Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
@@ -74,11 +73,11 @@ pub fn draw_status_panel(
             Span::styled("(✓ trusted ? verify)", Style::default().fg(Color::DarkGray)),
         ]));
         for proposal in proposals.iter().take(2) {
-            right_lines.push(proposal_span(proposal, right_chunk.width));
+            right_lines.push(proposal_line(proposal, right_chunk.width));
         }
         if let Some(overflow) = overflow_line(proposals.len().saturating_sub(2)) {
             right_lines
-                .push(Spans::from(Span::styled(overflow, Style::default().fg(Color::DarkGray))));
+                .push(Line::from(Span::styled(overflow, Style::default().fg(Color::DarkGray))));
         }
     }
 
@@ -86,9 +85,9 @@ pub fn draw_status_panel(
         if !structured.todos.is_empty() {
             if !right_lines.is_empty() {
                 // Add separator if we have proposals above
-                right_lines.push(Spans::from(""));
+                right_lines.push(Line::from(""));
             }
-            right_lines.push(Spans::from(Span::styled(
+            right_lines.push(Line::from(Span::styled(
                 "TODOs:",
                 Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
             )));
@@ -108,7 +107,7 @@ pub fn draw_status_panel(
                         assignee,
                         truncate(&todo.text, todo_text_limit(right_chunk.width))
                     );
-                    right_lines.push(Spans::from(Span::styled(
+                    right_lines.push(Line::from(Span::styled(
                         text,
                         Style::default().fg(Color::LightYellow),
                     )));
@@ -116,13 +115,13 @@ pub fn draw_status_panel(
                 if let Some(overflow) =
                     overflow_line(structured.todos.len().saturating_sub(todo_take))
                 {
-                    right_lines.push(Spans::from(Span::styled(
+                    right_lines.push(Line::from(Span::styled(
                         overflow,
                         Style::default().fg(Color::DarkGray),
                     )));
                 }
             } else if !structured.todos.is_empty() {
-                right_lines.push(Spans::from(Span::styled(
+                right_lines.push(Line::from(Span::styled(
                     format!("  … {} tasks", structured.todos.len()),
                     Style::default().fg(Color::DarkGray),
                 )));
@@ -179,7 +178,7 @@ fn ai_state_color(state: &AiState) -> Style {
     }
 }
 
-fn proposal_span(proposal: &SkillProposal, width: u16) -> Spans<'static> {
+fn proposal_line(proposal: &SkillProposal, width: u16) -> Line<'static> {
     let trusted_marker = if proposal.trusted { "✓" } else { "?" };
     let text = format!(
         "[{}] {} {}",
@@ -187,7 +186,7 @@ fn proposal_span(proposal: &SkillProposal, width: u16) -> Spans<'static> {
         trusted_marker,
         truncate(&proposal.skill_name, proposal_name_limit(width))
     );
-    Spans::from(Span::styled(text, Style::default().fg(Color::LightBlue)))
+    Line::from(Span::styled(text, Style::default().fg(Color::LightBlue)))
 }
 
 fn todo_text_limit(width: u16) -> usize {
@@ -208,8 +207,8 @@ fn overflow_line(hidden_count: usize) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use tui::backend::TestBackend;
-    use tui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
 
     use super::*;
     use crate::message::{StructuredOutput, TodoItem};
@@ -281,7 +280,7 @@ mod tests {
         let rendered = (0..8)
             .map(|y| {
                 (0..80)
-                    .map(|x| buffer.get(x, y).symbol.clone())
+                    .map(|x| buffer.get(x, y).symbol().to_string())
                     .collect::<String>()
                     .trim_end()
                     .to_string()
@@ -325,7 +324,7 @@ mod tests {
         let rendered = (0..8)
             .map(|y| {
                 (0..80)
-                    .map(|x| buffer.get(x, y).symbol.clone())
+                    .map(|x| buffer.get(x, y).symbol().to_string())
                     .collect::<String>()
                     .trim_end()
                     .to_string()

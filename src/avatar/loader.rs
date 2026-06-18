@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use tui::text::Spans;
+use ratatui::text::Line;
 
 use super::builtin::{ai_default, all_builtins};
 use super::{AvatarPlugin, AvatarSize, AvatarState};
@@ -68,12 +68,7 @@ impl AvatarManager {
     /// Render an avatar for the given preset name, state, and size.
     ///
     /// Falls back to `ai_default` if the preset is not found.
-    pub fn render(
-        &self,
-        preset: &str,
-        state: AvatarState,
-        size: AvatarSize,
-    ) -> Vec<Spans<'static>> {
+    pub fn render(&self, preset: &str, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         self.find_plugin(preset)
             .map(|p| p.render(state.clone(), size))
             .unwrap_or_else(|| ai_default().render(state, size))
@@ -112,7 +107,7 @@ impl AvatarPlugin for ExternalPlugin {
         &self.preset
     }
 
-    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Spans<'static>> {
+    fn render(&self, state: AvatarState, size: AvatarSize) -> Vec<Line<'static>> {
         let state_code = avatar_state_to_u32(&state);
         let size_code = avatar_size_to_u32(size);
 
@@ -135,12 +130,12 @@ impl AvatarPlugin for ExternalPlugin {
     }
 }
 
-/// A very basic ANSI parser that converts a string into Spans.
+/// A very basic ANSI parser that converts a string into Lines.
 /// Supports standard SGR color codes (30-37, 40-47, 90-97, 100-107).
 #[cfg(feature = "avatar-ffi")]
-fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
-    use tui::style::{Color, Style};
-    use tui::text::Span;
+fn parse_ansi(input: &str) -> Vec<Line<'static>> {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::Span;
 
     input
         .lines()
@@ -164,8 +159,8 @@ fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
                                 match code {
                                     0 => current_style = Style::default(),
                                     1 => {
-                                        current_style =
-                                            current_style.add_modifier(tui::style::Modifier::BOLD)
+                                        current_style = current_style
+                                            .add_modifier(ratatui::style::Modifier::BOLD)
                                     }
                                     30 => current_style = current_style.fg(Color::Black),
                                     31 => current_style = current_style.fg(Color::Red),
@@ -216,7 +211,7 @@ fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
             if pos < line.len() {
                 spans.push(Span::styled(line[pos..].to_string(), current_style));
             }
-            Spans::from(spans)
+            Line::from(spans)
         })
         .collect()
 }
@@ -224,14 +219,14 @@ fn parse_ansi(input: &str) -> Vec<Spans<'static>> {
 #[cfg(all(test, feature = "avatar-ffi"))]
 mod tests {
     use super::*;
-    use tui::style::Color;
+    use ratatui::style::Color;
 
     #[test]
     fn test_parse_ansi_colors() {
         let input = "\x1b[31mRed\x1b[0m \x1b[32mGreen\x1b[0m";
         let rendered = parse_ansi(input);
         assert_eq!(rendered.len(), 1);
-        let spans = &rendered[0].0;
+        let spans = &rendered[0].spans;
         assert_eq!(spans.len(), 3);
         assert_eq!(spans[0].content, "Red");
         assert_eq!(spans[0].style.fg, Some(Color::Red));

@@ -292,7 +292,12 @@ description: Review auth
         }),
     };
     let mut encoded = Vec::new();
-    bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
+    bincode::serde::encode_into_std_write(
+        NetMessage::AiMessage(payload),
+        &mut encoded,
+        bincode::config::legacy(),
+    )
+    .unwrap();
     tanaka.node_handler().network().send(endpoint, &encoded);
     for _ in 0..5 {
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
@@ -375,7 +380,12 @@ description: Review auth
         }),
     };
     let mut encoded = Vec::new();
-    bincode::serialize_into(&mut encoded, &NetMessage::AiMessage(payload)).unwrap();
+    bincode::serde::encode_into_std_write(
+        NetMessage::AiMessage(payload),
+        &mut encoded,
+        bincode::config::legacy(),
+    )
+    .unwrap();
     tanaka.node_handler().network().send(endpoint, &encoded);
     for _ in 0..5 {
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));

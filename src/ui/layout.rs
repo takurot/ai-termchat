@@ -1,4 +1,4 @@
-use tui::layout::Constraint;
+use ratatui::layout::Constraint;
 
 /// Phase 2 wide split: [peers(18), chat(min), status(22)].
 pub fn three_pane_constraints() -> Vec<Constraint> {
