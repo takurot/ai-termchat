@@ -134,8 +134,7 @@ impl StructuredOutput {
 
 impl AiPayload {
     pub fn validate(&self) -> bool {
-        self.text.len() <= MAX_AI_TEXT_LEN
-            && self.structured.as_ref().is_none_or(|s| s.validate())
+        self.text.len() <= MAX_AI_TEXT_LEN && self.structured.as_ref().is_none_or(|s| s.validate())
     }
 }
 
