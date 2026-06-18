@@ -30,7 +30,9 @@ use crate::commands::{
 };
 use crate::config::{Config, DefaultPermission};
 use crate::encoder::{self, Encoder};
-use crate::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
+use crate::message::{
+    AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload, SignaturePayload,
+};
 use crate::room::transcript::TranscriptEntry;
 use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
@@ -42,6 +44,7 @@ use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
 use crate::skill::registry::{InvokeMode, RiskLevel};
 use crate::terminal_events::TerminalEventCollector;
 use crate::util::{Error, Reportable, Result};
+use sha2::Digest;
 
 pub enum Signal {
     Terminal(TermEvent),
@@ -71,6 +74,7 @@ pub struct Application<'a> {
     local_server_port: Option<u16>,
     config_file_path: Option<PathBuf>,
     discovery_retries_remaining: usize,
+    signing_key: ed25519_dalek::SigningKey,
 }
 
 impl<'a> Application<'a> {
@@ -177,6 +181,13 @@ impl<'a> Application<'a> {
         };
         let art_dict = load_art_dictionary(art_yaml_path.as_deref()).unwrap_or_default();
 
+        let signing_key = if collect_terminal_events {
+            Config::get_or_create_identity_keypair()?
+        } else {
+            use rand::rngs::OsRng;
+            ed25519_dalek::SigningKey::generate(&mut OsRng)
+        };
+
         Ok(Self {
             config,
             commands,
@@ -195,6 +206,7 @@ impl<'a> Application<'a> {
             local_server_port: None,
             config_file_path,
             discovery_retries_remaining: 0,
+            signing_key,
         })
     }
 
@@ -355,19 +367,124 @@ impl<'a> Application<'a> {
             NetMessage::PeerInfo(peer) => {
                 self.state.connected_user(endpoint, &peer.user_name);
                 self.state.record_peer(endpoint, peer.clone());
-                if let Some(fingerprint) = self.state.peer_fingerprint(endpoint) {
-                    let trust_state = if self.state.is_trusted_peer(&fingerprint) {
-                        "trusted"
-                    } else {
-                        "untrusted"
-                    };
-                    self.state.add_system_info_message(format!(
-                        "peer ready: {} [{}] fp={}",
-                        peer.user_name,
-                        trust_state,
-                        short_fingerprint(&fingerprint)
-                    ));
+                if !version_supports_peer_identity(&peer.node_version) {
+                    if let Some(fingerprint) = self.state.peer_fingerprint(endpoint) {
+                        let trust_state = if self.state.is_trusted_peer(&fingerprint) {
+                            "trusted"
+                        } else {
+                            "untrusted"
+                        };
+                        self.state.add_system_info_message(format!(
+                            "peer ready: {} [{}] fp={}",
+                            peer.user_name,
+                            trust_state,
+                            short_fingerprint(&fingerprint)
+                        ));
+                        self.state.add_system_warn_message(format!(
+                            "Warning: peer {} is using an older version ({}) and is Unauthenticated.",
+                            peer.user_name, peer.node_version
+                        ));
+                    }
                 }
+            }
+            NetMessage::PeerIdentity { public_key, signature, timestamp } => {
+                let Some(peer) = self.state.peers().get(&endpoint).cloned() else {
+                    self.node.network().remove(endpoint.resource_id());
+                    return;
+                };
+
+                let now = chrono::Utc::now().timestamp() as u64;
+                let drift = (now as i64 - timestamp as i64).abs();
+                if drift > 60 {
+                    self.state.add_system_error_message(format!(
+                        "Security warning: signature timestamp drift too high ({}s) from {}. Disconnecting.",
+                        drift, peer.user_name
+                    ));
+                    self.node.network().remove(endpoint.resource_id());
+                    return;
+                }
+
+                if self.state.contains_replay_signature(&signature) {
+                    self.state.add_system_error_message(format!(
+                        "Security warning: replayed signature detected from {}. Disconnecting.",
+                        peer.user_name
+                    ));
+                    self.node.network().remove(endpoint.resource_id());
+                    return;
+                }
+
+                let payload = SignaturePayload {
+                    user_name: peer.user_name.clone(),
+                    node_version: peer.node_version.clone(),
+                    server_port: peer.server_port,
+                    timestamp,
+                };
+
+                let serialized = match bincode::serialize(&payload) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        self.state.add_system_error_message(format!(
+                            "Failed to serialize signature payload for {}: {}. Disconnecting.",
+                            peer.user_name, e
+                        ));
+                        self.node.network().remove(endpoint.resource_id());
+                        return;
+                    }
+                };
+
+                let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
+                    &public_key.clone().try_into().unwrap_or([0u8; 32]),
+                ) {
+                    Ok(key) => key,
+                    Err(e) => {
+                        self.state.add_system_error_message(format!(
+                            "Invalid public key from {}: {}. Disconnecting.",
+                            peer.user_name, e
+                        ));
+                        self.node.network().remove(endpoint.resource_id());
+                        return;
+                    }
+                };
+
+                let sig = match ed25519_dalek::Signature::from_slice(&signature) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        self.state.add_system_error_message(format!(
+                            "Invalid signature format from {}: {}. Disconnecting.",
+                            peer.user_name, e
+                        ));
+                        self.node.network().remove(endpoint.resource_id());
+                        return;
+                    }
+                };
+
+                use ed25519_dalek::Verifier;
+                if let Err(e) = verifying_key.verify(&serialized, &sig) {
+                    self.state.add_system_error_message(format!(
+                        "Security warning: signature verification failed for {}: {}. Disconnecting.",
+                        peer.user_name, e
+                    ));
+                    self.node.network().remove(endpoint.resource_id());
+                    return;
+                }
+
+                self.state.insert_replay_signature(signature);
+
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(&public_key);
+                let fp = format!("{:x}", hasher.finalize());
+
+                self.state.add_verified_peer_fingerprint(endpoint, fp.clone());
+
+                let trust_state =
+                    if self.state.is_trusted_peer(&fp) { "trusted" } else { "untrusted" };
+
+                self.state.add_system_info_message(format!(
+                    "peer ready: {} [{}] fp={}",
+                    peer.user_name,
+                    trust_state,
+                    short_fingerprint(&fp)
+                ));
             }
             NetMessage::RoomCreate(room_id, member_ids) => {
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
@@ -696,6 +813,16 @@ impl<'a> Application<'a> {
                 };
                 let source = proposal.source_peer.clone();
                 let is_remote = source.is_some();
+                if is_remote {
+                    let source_name = source.as_deref().unwrap_or("");
+                    if !self.state.is_peer_authenticated_by_name(source_name) {
+                        self.state.add_system_error_message(format!(
+                            "permission denied: proposal {} came from Unauthenticated peer {}.",
+                            index, source_name
+                        ));
+                        return;
+                    }
+                }
                 let permission = self.config.security.default_permission_policy();
                 let currently_trusted = if is_remote {
                     proposal
@@ -1095,6 +1222,22 @@ impl<'a> Application<'a> {
         );
     }
 
+    pub fn inject_authenticated_peer_for_test(&mut self, user_name: &str, fingerprint: &str) {
+        let id = message_io::network::ResourceId::from(130);
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let endpoint = message_io::network::Endpoint::from_listener(id, addr);
+
+        let peer = PeerInfo {
+            user_name: user_name.to_string(),
+            server_port: 5877,
+            node_version: env!("CARGO_PKG_VERSION").to_string(),
+            avatar: String::new(),
+        };
+
+        self.state.record_peer(endpoint, peer);
+        self.state.add_verified_peer_fingerprint(endpoint, fingerprint.to_string());
+    }
+
     fn process_user_data(&mut self, user_name: &str, file_name: &str, chunk: Chunk) {
         use std::io::Write;
         let sanitized_user = sanitize_filename(user_name);
@@ -1188,10 +1331,7 @@ impl<'a> Application<'a> {
                         temp_path
                     };
 
-                    std::fs::OpenOptions::new()
-                        .append(true)
-                        .open(temp_path)?
-                        .write_all(&data)?;
+                    std::fs::OpenOptions::new().append(true).open(temp_path)?.write_all(&data)?;
                     Ok(())
                 };
 
@@ -1237,6 +1377,21 @@ impl<'a> Application<'a> {
         };
         let mut encoder = Encoder::new();
         self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
+
+        let timestamp = chrono::Utc::now().timestamp() as u64;
+        let payload = SignaturePayload {
+            user_name: self.config.user_name.clone(),
+            node_version: env!("CARGO_PKG_VERSION").into(),
+            server_port,
+            timestamp,
+        };
+        if let Ok(serialized) = bincode::serialize(&payload) {
+            use ed25519_dalek::Signer;
+            let signature = self.signing_key.sign(&serialized).to_bytes().to_vec();
+            let public_key = self.signing_key.verifying_key().to_bytes().to_vec();
+            let identity_msg = NetMessage::PeerIdentity { public_key, signature, timestamp };
+            self.node.network().send(endpoint, encoder.encode(identity_msg));
+        }
     }
 
     fn peer_supports_room_create_v2(&self, endpoint: Endpoint) -> bool {
@@ -1518,10 +1673,12 @@ impl<'a> Application<'a> {
                     .push(format!("  {peer}  [{room_status}, {readiness}, untrusted]  fp=unknown"));
                 continue;
             };
+            let is_authenticated = self.state.is_peer_authenticated_by_name(&peer);
+            let auth_status = if is_authenticated { "" } else { ", unauthenticated" };
             let trust =
                 if self.state.is_trusted_peer(&fingerprint) { "trusted" } else { "untrusted" };
             lines.push(format!(
-                "  {peer}  [{room_status}, {readiness}, {trust}]  fp={fingerprint}",
+                "  {peer}  [{room_status}, {readiness}, {trust}{auth_status}]  fp={fingerprint}",
             ));
         }
         lines.join("\n")
@@ -1848,6 +2005,15 @@ pub fn finalize_transfer(
     }
 
     Ok(final_path)
+}
+
+fn version_supports_peer_identity(version: &str) -> bool {
+    if let Ok(ver) = semver::Version::parse(version) {
+        if let Ok(req) = semver::VersionReq::parse(">=0.1.2") {
+            return req.matches(&ver);
+        }
+    }
+    false
 }
 
 #[cfg(test)]

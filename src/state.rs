@@ -155,6 +155,8 @@ pub struct State {
     trusted_peer_fingerprints: HashSet<String>,
     active_transfers: HashMap<(String, String), PathBuf>,
     downloads_base_dir: Option<PathBuf>,
+    verified_peer_fingerprints: HashMap<Endpoint, String>,
+    signature_replay_cache: HashSet<Vec<u8>>,
     pub ai_state: AiState,
     pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
@@ -202,6 +204,8 @@ impl Default for State {
             trusted_peer_fingerprints: HashSet::new(),
             active_transfers: HashMap::new(),
             downloads_base_dir: None,
+            verified_peer_fingerprints: HashMap::new(),
+            signature_replay_cache: HashSet::new(),
             ai_state: AiState::Idle,
             ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
@@ -621,6 +625,7 @@ impl State {
             }
 
             self.peers.remove(&endpoint);
+            self.verified_peer_fingerprints.remove(&endpoint);
             self.add_message(ChatMessage::new(user, MessageType::Disconnection));
         }
     }
@@ -643,7 +648,23 @@ impl State {
     }
 
     pub fn peer_fingerprint(&self, endpoint: Endpoint) -> Option<String> {
-        self.peers.get(&endpoint).map(peer_fingerprint)
+        if let Some(verified_fp) = self.verified_peer_fingerprints.get(&endpoint) {
+            Some(verified_fp.clone())
+        } else {
+            self.peers.get(&endpoint).map(peer_fingerprint)
+        }
+    }
+
+    pub fn add_verified_peer_fingerprint(&mut self, endpoint: Endpoint, fingerprint: String) {
+        self.verified_peer_fingerprints.insert(endpoint, fingerprint);
+    }
+
+    pub fn contains_replay_signature(&self, signature: &[u8]) -> bool {
+        self.signature_replay_cache.contains(signature)
+    }
+
+    pub fn insert_replay_signature(&mut self, signature: Vec<u8>) {
+        self.signature_replay_cache.insert(signature);
     }
 
     pub fn peer_names(&self) -> Vec<String> {
@@ -663,6 +684,14 @@ impl State {
 
     pub fn peer_fingerprint_by_name(&self, user_name: &str) -> Option<String> {
         self.peer_endpoint_by_name(user_name).and_then(|endpoint| self.peer_fingerprint(endpoint))
+    }
+
+    pub fn is_peer_authenticated_by_name(&self, user_name: &str) -> bool {
+        if let Some(endpoint) = self.peer_endpoint_by_name(user_name) {
+            self.verified_peer_fingerprints.contains_key(&endpoint)
+        } else {
+            false
+        }
     }
 
     pub fn peer_readiness(&self, endpoint: Endpoint) -> PeerReadiness {

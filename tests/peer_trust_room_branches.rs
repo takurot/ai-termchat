@@ -36,7 +36,7 @@ fn peer_info(user_name: &str) -> PeerInfo {
     PeerInfo {
         user_name: user_name.into(),
         server_port: 9000,
-        node_version: "1.0.0".into(),
+        node_version: "0.1.1".into(),
         avatar: "human_default".into(),
     }
 }

@@ -82,6 +82,14 @@ pub enum Chunk {
     End,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignaturePayload {
+    pub user_name: String,
+    pub node_version: String,
+    pub server_port: u16,
+    pub timestamp: u64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NetMessage {
     HelloLan(String, u16),
@@ -94,6 +102,7 @@ pub enum NetMessage {
     RoomCreateV2 { room_id: RoomId, members: Vec<MemberId>, ai_mode: Option<AiMode> },
     RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
+    PeerIdentity { public_key: Vec<u8>, signature: Vec<u8>, timestamp: u64 },
 }
 
 pub const MAX_NAME_LEN: usize = 256;
@@ -184,6 +193,9 @@ impl NetMessage {
             }
             NetMessage::RoomJoin(room_id) => room_id.len() <= MAX_ROOM_ID_LEN,
             NetMessage::SkillResult(payload) => payload.validate(),
+            NetMessage::PeerIdentity { public_key, signature, timestamp: _ } => {
+                public_key.len() == 32 && signature.len() == 64
+            }
         }
     }
 }
