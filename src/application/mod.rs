@@ -261,13 +261,26 @@ impl<'a> Application<'a> {
         match event {
             NodeEvent::Network(net_event) => match net_event {
                 NetEvent::Connected(_, _) | NetEvent::Accepted(_, _) => {}
-                NetEvent::Message(endpoint, message) => match encoder::decode(&message) {
-                    Some(net_message) => self.process_network_message(endpoint, net_message),
-                    None => self.state.add_system_warn_message(format!(
-                        "ignored incompatible message from {}",
-                        endpoint.addr()
-                    )),
-                },
+                NetEvent::Message(endpoint, message) => {
+                    if message.len() > encoder::MAX_FRAME_SIZE {
+                        self.state.add_system_warn_message(format!(
+                            "ignored oversized message from {} ({} bytes, max {})",
+                            endpoint.addr(),
+                            message.len(),
+                            encoder::MAX_FRAME_SIZE
+                        ));
+                    } else {
+                        match encoder::decode(&message) {
+                            Some(net_message) => {
+                                self.process_network_message(endpoint, net_message)
+                            }
+                            None => self.state.add_system_warn_message(format!(
+                                "ignored incompatible or invalid message from {}",
+                                endpoint.addr()
+                            )),
+                        }
+                    }
+                }
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
                     self.ring_the_bell();
