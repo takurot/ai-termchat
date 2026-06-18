@@ -153,6 +153,8 @@ pub struct State {
     transcript_base_dir: Option<PathBuf>,
     transcript_writer: Option<(String, TranscriptWriter)>,
     trusted_peer_fingerprints: HashSet<String>,
+    active_transfers: HashMap<(String, String), PathBuf>,
+    downloads_base_dir: Option<PathBuf>,
     pub ai_state: AiState,
     pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
@@ -198,6 +200,8 @@ impl Default for State {
             transcript_base_dir: None,
             transcript_writer: None,
             trusted_peer_fingerprints: HashSet::new(),
+            active_transfers: HashMap::new(),
+            downloads_base_dir: None,
             ai_state: AiState::Idle,
             ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
@@ -454,6 +458,14 @@ impl State {
         self.transcript_writer = None;
     }
 
+    pub fn set_downloads_base_dir(&mut self, downloads_base_dir: Option<PathBuf>) {
+        self.downloads_base_dir = downloads_base_dir;
+    }
+
+    pub fn downloads_base_dir(&self) -> Option<PathBuf> {
+        self.downloads_base_dir.clone()
+    }
+
     pub fn set_trusted_peer_fingerprints(
         &mut self,
         fingerprints: impl IntoIterator<Item = String>,
@@ -600,9 +612,29 @@ impl State {
 
     pub fn disconnected_user(&mut self, endpoint: Endpoint) {
         if let Some(user) = self.lan_users.remove(&endpoint) {
+            let active_keys: Vec<_> =
+                self.active_transfers.keys().filter(|(u, _)| u == &user).cloned().collect();
+            for key in active_keys {
+                if let Some(temp_path) = self.active_transfers.remove(&key) {
+                    let _ = std::fs::remove_file(temp_path);
+                }
+            }
+
             self.peers.remove(&endpoint);
             self.add_message(ChatMessage::new(user, MessageType::Disconnection));
         }
+    }
+
+    pub fn start_transfer(&mut self, user: String, filename: String, temp_path: PathBuf) {
+        self.active_transfers.insert((user, filename), temp_path);
+    }
+
+    pub fn get_transfer_temp_path(&self, user: &str, filename: &str) -> Option<&PathBuf> {
+        self.active_transfers.get(&(user.to_string(), filename.to_string()))
+    }
+
+    pub fn remove_transfer(&mut self, user: &str, filename: &str) -> Option<PathBuf> {
+        self.active_transfers.remove(&(user.to_string(), filename.to_string()))
     }
 
     pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {

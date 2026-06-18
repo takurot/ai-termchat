@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -141,6 +140,11 @@ impl<'a> Application<'a> {
         state.set_trusted_peer_fingerprints(config.security.trusted_peers.clone());
         state.set_skill_registry(crate::skill::registry::SkillRegistry::scan(workspace));
         state.set_transcript_base_dir(dirs_next::data_dir());
+        if collect_terminal_events {
+            state.set_downloads_base_dir(dirs_next::data_dir());
+        } else {
+            state.set_downloads_base_dir(Some(std::env::temp_dir()));
+        }
 
         let ai_mediator = if config.ai.enabled {
             match AiMediator::new(workspace, &config.ai, &config.language) {
@@ -343,42 +347,8 @@ impl<'a> Application<'a> {
                 }
             }
             NetMessage::UserData(file_name, chunk) => {
-                use std::io::Write;
                 if let Some(user) = self.state.user_name(endpoint).cloned() {
-                    match chunk {
-                        Chunk::Error => {
-                            format!("'{}' had an error while sending '{}'", user, file_name)
-                                .report_err(&mut self.state);
-                        }
-                        Chunk::End => {
-                            format!(
-                                "Successfully received file '{}' from user '{}'!",
-                                file_name, user
-                            )
-                            .report_info(&mut self.state);
-                            self.ring_the_bell();
-                        }
-                        Chunk::Data(data) => {
-                            let try_write = || -> Result<()> {
-                                let user_path = std::env::temp_dir().join("triadchat").join(&user);
-                                match std::fs::create_dir_all(&user_path) {
-                                    Ok(_) => {}
-                                    Err(ref err) if err.kind() == ErrorKind::AlreadyExists => {}
-                                    Err(error) => return Err(error.into()),
-                                }
-
-                                let file_path = user_path.join(file_name);
-                                std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(file_path)?
-                                    .write_all(&data)?;
-                                Ok(())
-                            };
-
-                            try_write().report_if_err(&mut self.state);
-                        }
-                    }
+                    self.process_user_data(&user, &file_name, chunk);
                 }
             }
             NetMessage::AiMessage(payload) => self.process_remote_ai_response(endpoint, payload),
@@ -1125,41 +1095,118 @@ impl<'a> Application<'a> {
         );
     }
 
+    fn process_user_data(&mut self, user_name: &str, file_name: &str, chunk: Chunk) {
+        use std::io::Write;
+        let sanitized_user = sanitize_filename(user_name);
+        let sanitized_file = sanitize_filename(file_name);
+
+        match chunk {
+            Chunk::Error => {
+                if let Some(temp_path) = self.state.remove_transfer(&sanitized_user, file_name) {
+                    let _ = std::fs::remove_file(temp_path);
+                }
+                format!("'{}' had an error while sending '{}'", user_name, file_name)
+                    .report_err(&mut self.state);
+            }
+            Chunk::End => {
+                let temp_path = self.state.remove_transfer(&sanitized_user, file_name);
+                let data_dir = self
+                    .state
+                    .downloads_base_dir()
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("triadchat/downloads")
+                    .join(&sanitized_user);
+
+                let finalize_result = if let Some(temp_path) = temp_path {
+                    finalize_transfer(&temp_path, &data_dir, &sanitized_file)
+                } else {
+                    let unique_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+                    let temp_name = format!(".{}.tmp_{}", sanitized_file, unique_id);
+                    let temp_path = data_dir.join(temp_name);
+                    std::fs::create_dir_all(&data_dir)
+                        .and_then(|_| {
+                            std::fs::OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .truncate(true)
+                                .open(&temp_path)
+                        })
+                        .map_err(anyhow::Error::from)
+                        .and_then(|_| finalize_transfer(&temp_path, &data_dir, &sanitized_file))
+                };
+
+                match finalize_result {
+                    Ok(final_path) => {
+                        format!(
+                            "Successfully received file '{}' from user '{}'! Saved to: {}",
+                            sanitized_file,
+                            user_name,
+                            final_path.display()
+                        )
+                        .report_info(&mut self.state);
+                        self.ring_the_bell();
+                    }
+                    Err(e) => {
+                        format!(
+                            "Failed to finalize received file '{}' from user '{}': {}",
+                            file_name, user_name, e
+                        )
+                        .report_err(&mut self.state);
+                    }
+                }
+            }
+            Chunk::Data(data) => {
+                let mut try_write = || -> Result<()> {
+                    let temp_path = if let Some(path) =
+                        self.state.get_transfer_temp_path(&sanitized_user, file_name)
+                    {
+                        path.clone()
+                    } else {
+                        let data_dir = self
+                            .state
+                            .downloads_base_dir()
+                            .unwrap_or_else(std::env::temp_dir)
+                            .join("triadchat/downloads")
+                            .join(&sanitized_user);
+                        std::fs::create_dir_all(&data_dir)?;
+
+                        let unique_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+                        let temp_name = format!(".{}.tmp_{}", sanitized_file, unique_id);
+                        let temp_path = data_dir.join(temp_name);
+
+                        std::fs::OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .truncate(true)
+                            .open(&temp_path)?;
+
+                        self.state.start_transfer(
+                            sanitized_user.clone(),
+                            file_name.to_string(),
+                            temp_path.clone(),
+                        );
+                        temp_path
+                    };
+
+                    std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(temp_path)?
+                        .write_all(&data)?;
+                    Ok(())
+                };
+
+                try_write().report_if_err(&mut self.state);
+            }
+        }
+    }
+
     pub fn inject_receive_chunk_for_test(
         &mut self,
         file_name: &str,
         chunk: Chunk,
         user_name: &str,
     ) {
-        use std::io::Write;
-        match chunk {
-            Chunk::Error => {
-                format!("'{}' had an error while sending '{}'", user_name, file_name)
-                    .report_err(&mut self.state);
-            }
-            Chunk::End => {
-                format!("Successfully received file '{}' from user '{}'!", file_name, user_name)
-                    .report_info(&mut self.state);
-            }
-            Chunk::Data(data) => {
-                let try_write = || -> Result<()> {
-                    let user_path = std::env::temp_dir().join("triadchat").join(user_name);
-                    match std::fs::create_dir_all(&user_path) {
-                        Ok(_) => {}
-                        Err(ref err) if err.kind() == ErrorKind::AlreadyExists => {}
-                        Err(error) => return Err(error.into()),
-                    }
-                    let file_path = user_path.join(file_name);
-                    std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(file_path)?
-                        .write_all(&data)?;
-                    Ok(())
-                };
-                try_write().report_if_err(&mut self.state);
-            }
-        }
+        self.process_user_data(user_name, file_name, chunk);
     }
 
     pub fn connect_raw_for_test(&mut self, server_addr: SocketAddr) -> Result<Endpoint> {
@@ -1714,6 +1761,93 @@ fn render_ai_payload(payload: &AiPayload) -> String {
     } else {
         payload.text.clone()
     }
+}
+
+pub fn sanitize_filename(name: &str) -> String {
+    let raw_base = name.split(['/', '\\']).next_back().unwrap_or("");
+
+    let sanitized: String = raw_base
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+
+    let upper = sanitized.to_ascii_uppercase();
+    let is_reserved = matches!(
+        upper.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+
+    if sanitized.is_empty() || sanitized == "." || sanitized == ".." || is_reserved {
+        "safe_file".to_string()
+    } else {
+        sanitized
+    }
+}
+
+pub fn finalize_transfer(
+    temp_path: &std::path::Path,
+    sandbox_dir: &std::path::Path,
+    sanitized_filename: &str,
+) -> Result<std::path::PathBuf> {
+    std::fs::create_dir_all(sandbox_dir)?;
+
+    let mut final_path = sandbox_dir.join(sanitized_filename);
+    let mut counter = 1;
+
+    let path_obj = std::path::Path::new(sanitized_filename);
+    let stem = path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or(sanitized_filename);
+    let extension = path_obj.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    loop {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&final_path) {
+            Ok(_) => match std::fs::rename(temp_path, &final_path) {
+                Ok(_) => break,
+                Err(e) => {
+                    if e.raw_os_error() == Some(18) {
+                        std::fs::copy(temp_path, &final_path)?;
+                        let _ = std::fs::remove_file(temp_path);
+                        break;
+                    } else {
+                        let _ = std::fs::remove_file(&final_path);
+                        return Err(e.into());
+                    }
+                }
+            },
+            Err(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let new_name = if extension.is_empty() {
+                    format!("{}_{}", stem, counter)
+                } else {
+                    format!("{}_{}.{}", stem, counter, extension)
+                };
+                final_path = sandbox_dir.join(new_name);
+                counter += 1;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    Ok(final_path)
 }
 
 #[cfg(test)]
