@@ -24,8 +24,9 @@ pub fn decode(data_message: &[u8]) -> Option<NetMessage> {
     if data_message.len() > MAX_FRAME_SIZE {
         return None;
     }
-    let config = bincode::config::legacy().with_limit::<{MAX_FRAME_SIZE}>();
-    let (msg, _): (NetMessage, usize) = bincode::serde::decode_from_slice(data_message, config).ok()?;
+    let config = bincode::config::legacy().with_limit::<{ MAX_FRAME_SIZE }>();
+    let (msg, _): (NetMessage, usize) =
+        bincode::serde::decode_from_slice(data_message, config).ok()?;
     if msg.validate() {
         Some(msg)
     } else {
