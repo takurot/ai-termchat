@@ -53,7 +53,7 @@ fn pump_until<F>(
 fn peer_handshake_and_room_create_propagates() {
     let discovery_port = 30000 + (rand::random::<u16>() % 3000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port + 1);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
@@ -91,8 +91,8 @@ fn peer_handshake_and_room_create_propagates() {
 fn room_and_peer_commands_show_richer_metadata() {
     let discovery_port = 33000 + (rand::random::<u16>() % 3000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port);
-    let sato_config = test_config("sato", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port + 1);
+    let sato_config = test_config("sato", discovery_port + 2);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
     let mut sato = Application::new_for_test(&sato_config).unwrap();
@@ -160,7 +160,7 @@ fn room_and_peer_commands_show_richer_metadata() {
 fn room_switch_rejects_zero_index() {
     let discovery_port = 36000 + (rand::random::<u16>() % 3000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port + 1);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
@@ -198,7 +198,7 @@ fn room_switch_rejects_zero_index() {
 fn peer_connect_command_bootstraps_room_creation_without_multicast() {
     let discovery_port = 41000 + (rand::random::<u16>() % 1000);
     let takuro_config = test_config("takuro", discovery_port);
-    let tanaka_config = test_config("tanaka", discovery_port);
+    let tanaka_config = test_config("tanaka", discovery_port + 1);
     let mut takuro = Application::new_for_test(&takuro_config).unwrap();
     let mut tanaka = Application::new_for_test(&tanaka_config).unwrap();
 
@@ -257,7 +257,7 @@ description: Review auth
     let mut takuro_config = test_config("takuro", discovery_port);
     takuro_config.ai.command = Some(script_path.display().to_string());
     takuro_config.security.default_permission = "confirm-required".into();
-    let mut tanaka_config = test_config("tanaka", discovery_port);
+    let mut tanaka_config = test_config("tanaka", discovery_port + 1);
     tanaka_config.ai.command = Some(script_path.display().to_string());
     let mut takuro =
         Application::new_for_test_in_workspace(&takuro_config, workspace.path()).unwrap();
@@ -344,7 +344,7 @@ description: Review auth
     let mut takuro_config = test_config("takuro", discovery_port);
     takuro_config.ai.command = Some(script_path.display().to_string());
     takuro_config.security.default_permission = "confirm-required".into();
-    let mut tanaka_config = test_config("tanaka", discovery_port);
+    let mut tanaka_config = test_config("tanaka", discovery_port + 1);
     tanaka_config.ai.command = Some(script_path.display().to_string());
     let mut takuro =
         Application::new_for_test_in_workspace(&takuro_config, workspace.path()).unwrap();
