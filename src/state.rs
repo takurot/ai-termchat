@@ -644,6 +644,7 @@ impl State {
 
     pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {
         self.remove_duplicate_peer_entries(endpoint, &peer.user_name);
+        self.lan_users.insert(endpoint, peer.user_name.clone());
         self.peers.insert(endpoint, peer);
     }
 
