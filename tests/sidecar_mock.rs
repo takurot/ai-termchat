@@ -26,8 +26,14 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|error| error.into_inner())
 }
 
+async fn sidecar_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
+}
+
 #[tokio::test]
 async fn sidecar_returns_stdout() {
+    let _guard = sidecar_lock().await;
     let dir = TempDir::new().unwrap();
     let script = write_script(
         &dir,
@@ -48,6 +54,7 @@ async fn sidecar_returns_stdout() {
 
 #[tokio::test]
 async fn sidecar_times_out() {
+    let _guard = sidecar_lock().await;
     let dir = TempDir::new().unwrap();
     let script = write_script(&dir, "slow-claude.sh", "#!/bin/sh\nsleep 2\nprintf 'late'\n");
     let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_millis(100))
@@ -58,6 +65,52 @@ async fn sidecar_times_out() {
         .await
         .expect_err("sidecar should time out");
     assert!(error.to_string().contains("timed out"));
+}
+
+#[tokio::test]
+async fn sidecar_timeout_kills_child_process() {
+    let _guard = sidecar_lock().await;
+    let dir = TempDir::new().unwrap();
+    let marker = dir.path().join("late-marker");
+    let script = write_script(
+        &dir,
+        "late-writer.sh",
+        &format!("#!/bin/sh\n(sleep 1; printf late > '{}') &\nwait\n", marker.display()),
+    );
+    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_millis(100))
+        .expect("adapter should be created");
+
+    let error = adapter
+        .ask(script.to_str().expect("script path should be utf-8"))
+        .await
+        .expect_err("sidecar should time out");
+    assert!(error.to_string().contains("timed out"));
+
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!marker.exists(), "timed-out sidecar should not keep running in background");
+}
+
+#[tokio::test]
+async fn sidecar_abort_kills_child_process_group() {
+    let _guard = sidecar_lock().await;
+    let dir = TempDir::new().unwrap();
+    let marker = dir.path().join("late-marker");
+    let script = write_script(
+        &dir,
+        "late-writer.sh",
+        &format!("#!/bin/sh\n(sleep 1; printf late > '{}') &\nwait\n", marker.display()),
+    );
+    let adapter = SidecarAdapter::from_command(dir.path(), "/bin/sh", Duration::from_secs(10))
+        .expect("adapter should be created");
+    let prompt = script.to_str().expect("script path should be utf-8").to_string();
+
+    let task = tokio::spawn(async move { adapter.ask(&prompt).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    task.abort();
+    let _ = task.await;
+
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!marker.exists(), "aborted sidecar should not keep running in background");
 }
 
 #[test]
@@ -123,6 +176,7 @@ fn capture_args_script(dir: &TempDir, args_file: &std::path::Path) -> std::path:
 
 #[tokio::test]
 async fn provider_invocation_uses_provider_specific_args() {
+    let _guard = sidecar_lock().await;
     let dir = TempDir::new().unwrap();
     let args_file = dir.path().join("args.txt");
     let script = capture_args_script(&dir, &args_file);
@@ -138,8 +192,9 @@ async fn provider_invocation_uses_provider_specific_args() {
             enabled: true,
             provider,
             command: Some(script.display().to_string()),
-            // Increase timeout to 3s to avoid flakiness in slow CI environments.
-            timeout_secs: 3,
+            // Keep this roomy because the full integration suite can run subprocess-heavy tests
+            // concurrently on slower CI machines.
+            timeout_secs: 10,
         };
         let adapter = SidecarAdapter::new(dir.path(), &config).expect("adapter should build");
 

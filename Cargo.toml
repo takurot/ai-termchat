@@ -39,7 +39,7 @@ which = "4"
 sha2 = "0.10"
 semver = "1.0.28"
 libloading = { version = "0.8", optional = true }
-libc = { version = "0.2", optional = true }
+libc = "0.2"
 ed25519-dalek = { version = "2.1.0", features = ["rand_core"] }
 rand = "0.8.5"
 
@@ -50,4 +50,4 @@ tempfile = "3"
 ui-test = []
 # Enable FFI-based avatar plugin loading via libloading. Disabled by default
 # to avoid pulling in dynamic linking dependencies in standard builds.
-avatar-ffi = ["libloading", "libc"]
+avatar-ffi = ["libloading"]

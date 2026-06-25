@@ -122,6 +122,39 @@ mod tests {
     }
 
     #[test]
+    fn test_ai_structured_raw_text_is_rejected() {
+        let payload = AiPayload {
+            text: "Short text".into(),
+            intent: Default::default(),
+            structured: Some(StructuredOutput::raw("raw fallback")),
+        };
+        let msg = NetMessage::AiMessage(payload);
+        let encoded = test_serialize(&msg);
+        let decoded = decode(&encoded);
+        assert!(decoded.is_none(), "Should reject AI structured output with raw_text");
+    }
+
+    #[test]
+    fn test_ai_structured_control_skill_name_is_decodable_for_application_filtering() {
+        let structured = StructuredOutput {
+            skill_suggestions: vec!["STRUCTURED: malicious".into()],
+            ..Default::default()
+        };
+        let payload = AiPayload {
+            text: "Short text".into(),
+            intent: Default::default(),
+            structured: Some(structured),
+        };
+        let msg = NetMessage::AiMessage(payload);
+        let encoded = test_serialize(&msg);
+        let decoded = decode(&encoded);
+        assert!(
+            decoded.is_some(),
+            "Application-level AI handling filters unsafe skill names while preserving payload"
+        );
+    }
+
+    #[test]
     fn test_trailing_bytes() {
         let msg = NetMessage::UserMessage("Hello".into());
         let mut encoded = test_serialize(&msg);

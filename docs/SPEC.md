@@ -501,6 +501,7 @@ impl Config {
 ### 9.1 プロンプト設計 (Phase 0 の最優先事項)
 
 **`/summary` `/todos` `/decisions` の精度が全体の価値を決定する。** プロンプトは `src/ai/prompt.rs` に集約し、反復的に改善する。
+この節のコードブロックは初期設計時の疑似コードであり、現在のセキュリティ上の実装契約は 9.3a を優先する。
 
 すべてのプロンプト関数は `lang: &str` (例: `"ja"`, `"en"`) を受け取り、  
 AI への出力言語指示を末尾に付加する。これにより `config.toml` の `[language]` 設定が AI 応答言語を制御する。
@@ -624,7 +625,18 @@ pub enum MessageClass {
 }
 ```
 
+### 9.3a Prompt / Structured Output Security
+
+AI prompt に埋め込む会話ログ・直近発言・直接メンション本文は、必ずユーザー由来データとして扱う。
+
+- `transcript`, `question`, `last_messages` は固定タグで囲み、`&`, `<`, `>` をエスケープする。
+- ユーザー由来データの行頭に `TASK:`, `INTENT:`, `TEXT:`, `STRUCTURED:`, `TRANSCRIPT:`, `LAST_MESSAGES:`, `QUESTION:` が現れた場合は、LLM 出力制御行に見えないよう neutralize する。
+- AI から返る `STRUCTURED` JSON は `StructuredOutput::validate()` を通す。`raw_text` を含む structured payload、空または制御行風の skill 名、改行や空白を含む skill 名は skill proposal として保存しない。
+- 同じ validation は parser だけでなく `AiResponse` 処理と `NetMessage::AiMessage` decode にも適用し、parser を迂回した payload でも実行候補を作らない。
+
 ### 9.4 Claude Code Sidecar
+
+この節のコードブロックは初期設計時の疑似コードであり、現在の timeout cleanup 契約はコードブロック後の記述を優先する。
 
 ```rust
 /// src/ai/sidecar.rs
@@ -661,6 +673,8 @@ impl SidecarAdapter {
     }
 }
 ```
+
+Sidecar process は timeout 時にバックグラウンドで残してはならない。Unix では sidecar を独立 process group で起動し、timeout 時は process group ごと best-effort で終了させる。
 
 ---
 
