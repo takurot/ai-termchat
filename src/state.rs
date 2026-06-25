@@ -695,6 +695,10 @@ impl State {
         }
     }
 
+    pub fn is_peer_authenticated_endpoint(&self, endpoint: Endpoint) -> bool {
+        self.verified_peer_fingerprints.contains_key(&endpoint)
+    }
+
     pub fn peer_readiness(&self, endpoint: Endpoint) -> PeerReadiness {
         self.peers.get(&endpoint).map(peer_readiness).unwrap_or(PeerReadiness::Connecting)
     }

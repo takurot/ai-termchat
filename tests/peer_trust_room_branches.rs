@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use triadchat::application::Application;
 use triadchat::config::Config;
-use triadchat::message::{NetMessage, PeerInfo};
+use triadchat::message::{AiIntent, AiPayload, Chunk, NetMessage, PeerInfo, SkillResultPayload};
 use triadchat::state::{peer_fingerprint, State};
 
 fn make_test_config(dir: &TempDir) -> Config {
@@ -121,6 +121,8 @@ fn room_create_includes_local_joins() {
     let (mut app, listener) = make_app(&config);
 
     let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+    app.authenticate_endpoint_for_test(endpoint, "fp:tanaka:test");
     let room_id = "room-1".to_string();
     let member_ids = vec!["tester".to_string(), "tanaka".to_string()];
     app.inject_network_message_for_test(
@@ -131,6 +133,173 @@ fn room_create_includes_local_joins() {
     let rendered = rendered_messages(app.state());
     assert_contains(&rendered, &format!("joined room {}", room_id));
     assert_eq!(app.state().active_room_id(), Some(room_id.as_str()));
+}
+
+#[test]
+fn unauthenticated_peer_message_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::UserMessage("spoofed message".to_string()),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "spoofed message");
+    assert_contains(&rendered, "rejected unauthenticated message from tanaka");
+}
+
+#[test]
+fn unauthenticated_peer_file_transfer_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::UserData("spoofed.txt".to_string(), Chunk::Data(b"payload".to_vec())),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_contains(&rendered, "rejected unauthenticated file transfer from tanaka");
+}
+
+#[test]
+fn unauthenticated_peer_room_create_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::RoomCreate("room-spoof".to_string(), vec!["tester".to_string()]),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "joined room room-spoof");
+    assert_contains(&rendered, "rejected unauthenticated room invite from tanaka");
+    assert_eq!(app.state().active_room_id(), None);
+}
+
+#[test]
+fn unauthenticated_peer_room_create_v2_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::RoomCreateV2 {
+            room_id: "room-spoof-v2".to_string(),
+            members: vec!["tester".to_string()],
+            ai_mode: None,
+        },
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "joined room room-spoof-v2");
+    assert_contains(&rendered, "rejected unauthenticated room invite from tanaka");
+    assert_eq!(app.state().active_room_id(), None);
+}
+
+#[test]
+fn unauthenticated_peer_room_join_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(endpoint, NetMessage::RoomJoin("room-spoof".to_string()));
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "room room-spoof is ready");
+    assert_contains(&rendered, "rejected unauthenticated room join from tanaka");
+}
+
+#[test]
+fn unauthenticated_peer_ai_message_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::AiMessage(AiPayload {
+            text: "spoofed ai output".to_string(),
+            intent: AiIntent::Summary,
+            structured: None,
+        }),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "spoofed ai output");
+    assert_contains(&rendered, "rejected unauthenticated AI message from tanaka");
+}
+
+#[test]
+fn authenticated_peer_identity_change_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+    app.authenticate_endpoint_for_test(endpoint, "fp:tanaka:test");
+
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("sato")));
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::UserMessage("spoofed identity message".to_string()),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_contains(
+        &rendered,
+        "Security warning: authenticated peer tanaka attempted to change identity to sato. Disconnecting.",
+    );
+    assert_not_contains(&rendered, "spoofed identity message");
+}
+
+#[test]
+fn unauthenticated_peer_skill_result_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let config = make_test_config(&dir);
+    let (mut app, listener) = make_app(&config);
+
+    let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+
+    app.inject_network_message_for_test(
+        endpoint,
+        NetMessage::SkillResult(SkillResultPayload {
+            skill_name: "review-auth".to_string(),
+            summary: "spoofed skill result".to_string(),
+            success: true,
+        }),
+    );
+
+    let rendered = rendered_messages(app.state());
+    assert_not_contains(&rendered, "spoofed skill result");
+    assert_contains(&rendered, "rejected unauthenticated skill result from tanaka");
 }
 
 #[test]
@@ -159,6 +328,8 @@ fn room_join_switches_and_emits_ready() {
     let (mut app, listener) = make_app(&config);
 
     let endpoint = app.connect_raw_for_test(listener.local_addr().unwrap()).unwrap();
+    app.inject_network_message_for_test(endpoint, NetMessage::PeerInfo(peer_info("tanaka")));
+    app.authenticate_endpoint_for_test(endpoint, "fp:tanaka:test");
 
     let room_id = "room-3".to_string();
     let member_ids = vec!["tester".to_string(), "tanaka".to_string()];

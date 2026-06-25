@@ -352,19 +352,32 @@ impl<'a> Application<'a> {
                 self.ring_the_bell();
             }
             NetMessage::UserMessage(content) => {
-                if let Some(user) = self.state.user_name(endpoint) {
-                    self.state
-                        .add_message(ChatMessage::new(user.into(), MessageType::Text(content)));
+                if let Some(user) = self.state.user_name(endpoint).cloned() {
+                    if !self.accepts_authenticated_peer_message(endpoint, "message") {
+                        return;
+                    }
+                    self.state.add_message(ChatMessage::new(user, MessageType::Text(content)));
                     self.ring_the_bell();
                 }
             }
             NetMessage::UserData(file_name, chunk) => {
                 if let Some(user) = self.state.user_name(endpoint).cloned() {
+                    if !self.accepts_authenticated_peer_message(endpoint, "file transfer") {
+                        return;
+                    }
                     self.process_user_data(&user, &file_name, chunk);
                 }
             }
-            NetMessage::AiMessage(payload) => self.process_remote_ai_response(endpoint, payload),
+            NetMessage::AiMessage(payload) => {
+                if !self.accepts_authenticated_peer_message(endpoint, "AI message") {
+                    return;
+                }
+                self.process_remote_ai_response(endpoint, payload);
+            }
             NetMessage::PeerInfo(peer) => {
+                if self.rejects_authenticated_peer_identity_change(endpoint, &peer) {
+                    return;
+                }
                 self.state.connected_user(endpoint, &peer.user_name);
                 self.state.record_peer(endpoint, peer.clone());
                 if !version_supports_peer_identity(&peer.node_version) {
@@ -488,6 +501,9 @@ impl<'a> Application<'a> {
                 ));
             }
             NetMessage::RoomCreate(room_id, member_ids) => {
+                if !self.accepts_authenticated_peer_message(endpoint, "room invite") {
+                    return;
+                }
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
                     let room = self.state.accept_room(&room_id, &member_ids, None);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
@@ -497,6 +513,9 @@ impl<'a> Application<'a> {
                 }
             }
             NetMessage::RoomCreateV2 { room_id, members, ai_mode } => {
+                if !self.accepts_authenticated_peer_message(endpoint, "room invite") {
+                    return;
+                }
                 if members.iter().any(|member_id| member_id == &self.config.user_name) {
                     let room = self.state.accept_room(&room_id, &members, ai_mode);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
@@ -506,11 +525,63 @@ impl<'a> Application<'a> {
                 }
             }
             NetMessage::RoomJoin(room_id) => {
+                if !self.accepts_authenticated_peer_message(endpoint, "room join") {
+                    return;
+                }
                 let _ = self.state.switch_room(&room_id);
                 self.state.add_system_info_message(format!("room {} is ready", room_id));
             }
-            NetMessage::SkillResult(payload) => self.record_skill_done(payload, false),
+            NetMessage::SkillResult(payload) => {
+                if !self.accepts_authenticated_peer_message(endpoint, "skill result") {
+                    return;
+                }
+                self.record_skill_done(payload, false);
+            }
         }
+    }
+
+    fn rejects_authenticated_peer_identity_change(
+        &mut self,
+        endpoint: Endpoint,
+        next_peer: &PeerInfo,
+    ) -> bool {
+        if !self.state.is_peer_authenticated_endpoint(endpoint) {
+            return false;
+        }
+        let Some(current_peer) = self.state.peers().get(&endpoint).cloned() else {
+            return false;
+        };
+        if current_peer.user_name == next_peer.user_name
+            && current_peer.node_version == next_peer.node_version
+            && current_peer.server_port == next_peer.server_port
+        {
+            return false;
+        }
+        self.state.add_system_error_message(format!(
+            "Security warning: authenticated peer {} attempted to change identity to {}. Disconnecting.",
+            current_peer.user_name, next_peer.user_name
+        ));
+        self.node.network().remove(endpoint.resource_id());
+        self.state.disconnected_user(endpoint);
+        true
+    }
+
+    fn accepts_authenticated_peer_message(
+        &mut self,
+        endpoint: Endpoint,
+        message_kind: &str,
+    ) -> bool {
+        let Some(user) = self.state.user_name(endpoint).map(|user| user.to_string()) else {
+            return false;
+        };
+        if self.state.is_peer_authenticated_endpoint(endpoint) {
+            return true;
+        }
+        self.state.add_system_warn_message(format!(
+            "rejected unauthenticated {} from {}",
+            message_kind, user
+        ));
+        false
     }
 
     fn process_terminal_event(&mut self, term_event: TermEvent) -> Result<()> {
@@ -1241,6 +1312,10 @@ impl<'a> Application<'a> {
         };
 
         self.state.record_peer(endpoint, peer);
+        self.state.add_verified_peer_fingerprint(endpoint, fingerprint.to_string());
+    }
+
+    pub fn authenticate_endpoint_for_test(&mut self, endpoint: Endpoint, fingerprint: &str) {
         self.state.add_verified_peer_fingerprint(endpoint, fingerprint.to_string());
     }
 
