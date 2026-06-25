@@ -17,6 +17,29 @@
 
 ---
 
+## GitHub Issue 対応履歴
+
+### Issue #90 — 未認証 peer の spoofing 拒否
+
+**ステータス:** `✅ Done`
+
+**変更ファイル:**
+```
+src/application/mod.rs
+src/state.rs
+tests/peer_trust_room_branches.rs
+docs/SPEC.md
+```
+
+**完了内容:**
+- [x] `UserMessage` と `UserData` を署名検証済み endpoint からのみ受理
+- [x] `AiMessage`, `RoomCreate`, `RoomCreateV2`, `RoomJoin`, `SkillResult` を署名検証済み endpoint からのみ受理
+- [x] 認証済み endpoint の `PeerInfo` identity 差し替えを拒否して切断
+- [x] 未認証 peer からの spoofed chat / room invite / AI output / skill result を拒否する regression test を追加
+- [x] TCP/UDP transport 暗号化は未実装の残リスクとして `docs/SPEC.md` に明記
+
+---
+
 ## 依存グラフ
 
 ```

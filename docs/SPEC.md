@@ -1009,10 +1009,13 @@ impl Default for LanguageConfig {
 ## 16. ネットワーク安全設計 (Phase 1)
 
 - デフォルト LAN 限定
-- 初回接続時に peer fingerprint `SHA256(user_name + node_version)` を保存
+- 初回接続時に `PeerIdentity` 署名を検証し、公開鍵 fingerprint を endpoint に紐づける
+- 署名検証後の endpoint が `PeerInfo` の `user_name`, `node_version`, `server_port` を変更した場合は切断する
+- peer 由来で state を変更する payload (`UserMessage`, `UserData`, `AiMessage`, `RoomCreate`, `RoomCreateV2`, `RoomJoin`, `SkillResult`) は署名検証済み endpoint からのみ受理する
 - `trusted_peers` に含まれる peer のみスキル実行を許可
 - `risk: medium|high` のスキルは明示承認が必要
 - Transcript はローカル保存のみ
+- TCP/UDP transport 自体はまだ暗号化されていない。LAN 上の盗聴対策には Noise/rustls 等の protocol upgrade が必要
 
 ---
 
