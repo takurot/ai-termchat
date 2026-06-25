@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -67,16 +68,28 @@ impl SidecarAdapter {
 
     async fn run_prompt(&self, prompt: &str, timeout: Duration) -> Result<(String, bool)> {
         let (prompt, truncated) = truncate_prompt(prompt, 50_000);
-        let output = tokio::time::timeout(timeout, async {
-            Command::new(&self.command)
-                .current_dir(&self.workspace)
-                .args(&self.prefix_args)
-                .arg(&prompt)
-                .output()
-                .await
-        })
-        .await
-        .map_err(|_| anyhow!("sidecar timed out after {:?}", timeout))??;
+        let mut command = Command::new(&self.command);
+        command
+            .current_dir(&self.workspace)
+            .args(&self.prefix_args)
+            .arg(&prompt)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        let child = command.spawn().context("failed to spawn sidecar")?;
+        let mut process_group = ProcessGroupGuard::new(child.id());
+
+        let output = match tokio::time::timeout(timeout, child.wait_with_output()).await {
+            Ok(output) => {
+                process_group.disarm();
+                output?
+            }
+            Err(_) => {
+                return Err(anyhow!("sidecar timed out after {:?}", timeout));
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -91,6 +104,44 @@ impl SidecarAdapter {
         Ok((stdout, truncated))
     }
 }
+
+struct ProcessGroupGuard {
+    child_id: Option<u32>,
+    armed: bool,
+}
+
+impl ProcessGroupGuard {
+    fn new(child_id: Option<u32>) -> Self {
+        Self { child_id, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            kill_process_group(self.child_id);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_group(child_id: Option<u32>) {
+    if let Some(child_id) = child_id {
+        let process_group_id = -(child_id as libc::pid_t);
+        // Best-effort cleanup for sidecars that spawn descendants; the timeout error is returned
+        // regardless of whether the process already exited between timeout and this signal.
+        unsafe {
+            libc::kill(process_group_id, libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_group(_child_id: Option<u32>) {}
 
 fn truncate_prompt(prompt: &str, max_chars: usize) -> (String, bool) {
     let truncated = prompt.chars().count() > max_chars;

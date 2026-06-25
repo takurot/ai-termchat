@@ -1149,13 +1149,20 @@ impl<'a> Application<'a> {
 
     fn record_ai_response(
         &mut self,
-        payload: AiPayload,
+        mut payload: AiPayload,
         broadcast: bool,
         source_peer: Option<String>,
         source_fingerprint: Option<String>,
         trusted: bool,
         truncated: bool,
     ) {
+        if let Some(structured) = payload.structured.as_mut() {
+            if structured.validate() {
+                structured.sanitize_skill_suggestions();
+            } else {
+                payload.structured = None;
+            }
+        }
         self.state.ai_state = AiState::Idle;
         self.state.ai_thinking = false;
         self.state.last_ai_at = Some(Instant::now());

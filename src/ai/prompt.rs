@@ -14,16 +14,51 @@ pub fn truncate_transcript(transcript: &str, max_lines: usize) -> String {
     lines[start..].join("\n")
 }
 
+fn escape_xml(value: &str) -> String {
+    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn sanitize_untrusted_text(value: &str) -> String {
+    value
+        .lines()
+        .map(|line| {
+            let escaped = escape_xml(line);
+            if is_control_line(&escaped) {
+                format!("user-content: {escaped}")
+            } else {
+                escaped
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_control_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.starts_with("TASK:")
+        || trimmed.starts_with("INTENT:")
+        || trimmed.starts_with("TEXT:")
+        || trimmed.starts_with("STRUCTURED:")
+        || trimmed.starts_with("TRANSCRIPT:")
+        || trimmed.starts_with("LAST_MESSAGES:")
+        || trimmed.starts_with("QUESTION:")
+}
+
+fn tagged(tag: &str, value: &str) -> String {
+    format!("<{tag}>\n{}\n</{tag}>", sanitize_untrusted_text(value))
+}
+
 fn base_prompt(task: &str, transcript: &str, lang: &str) -> String {
+    let transcript = tagged("transcript", &truncate_transcript(transcript, 100));
     format!(
         "TASK:{task}\n{}\n\
 Return the answer in exactly this format:\n\
 INTENT: <Clarify|Summary|Todo|Decision|SkillSuggest>\n\
 TEXT: <summary text>\n\
 STRUCTURED: {{\"todos\":[{{\"text\":\"...\",\"assignee\":\"...\"}}],\"decisions\":[\"...\"],\"skill_suggestions\":[\"...\"]}}\n\
-TRANSCRIPT:\n{}\n",
+{}\n",
         lang_instruction(lang),
-        truncate_transcript(transcript, 100)
+        transcript
     )
 }
 
@@ -40,14 +75,21 @@ pub fn decisions_prompt(transcript: &str, lang: &str) -> String {
 }
 
 pub fn intervene_prompt(transcript: &str, last_messages: &[String], lang: &str) -> String {
+    let messages = last_messages
+        .iter()
+        .map(|message| format!("<message>{}</message>", sanitize_untrusted_text(message)))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
-        "{}\nLAST_MESSAGES:\n{}\n",
+        "{}\n<last_messages>\n{}\n</last_messages>\n",
         base_prompt("intervene", transcript, lang),
-        last_messages.join("\n")
+        messages
     )
 }
 
 pub fn mention_prompt(message: &str, transcript: &str, lang: &str) -> String {
+    let question = tagged("question", message);
+    let context = tagged("recent_context", &truncate_transcript(transcript, 10));
     format!(
         "TASK:mention\n{}\n\
         You are ops-ai, a helpful team member who was directly addressed.\n\
@@ -61,24 +103,29 @@ pub fn mention_prompt(message: &str, transcript: &str, lang: &str) -> String {
         INTENT: Clarify\n\
         TEXT: <your direct answer here>\n\
         STRUCTURED: {{\"todos\":[],\"decisions\":[],\"skill_suggestions\":[]}}\n\
-        QUESTION: {}\n\
-        RECENT CONTEXT:\n{}\n",
+        {}\n\
+        {}\n",
         lang_instruction(lang),
-        message,
-        truncate_transcript(transcript, 10)
+        question,
+        context
     )
 }
 
 pub fn companion_prompt(transcript: &str, last_messages: &[String], lang: &str) -> String {
+    let messages = last_messages
+        .iter()
+        .map(|message| format!("<message>{}</message>", sanitize_untrusted_text(message)))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "{}\n\
         You are an active conversation participant, not just a clerk.\n\
         React naturally: add relevant ideas, ask clarifying questions,\n\
         point out interesting angles, or summarise when helpful.\n\
         Keep responses short (1-3 sentences). Do not summarise unless asked.\n\
-        LAST_MESSAGES:\n{}\n",
+        <last_messages>\n{}\n</last_messages>\n",
         base_prompt("companion", transcript, lang),
-        last_messages.join("\n")
+        messages
     )
 }
 

@@ -130,15 +130,37 @@ impl TodoItem {
 }
 
 impl StructuredOutput {
+    pub fn sanitize_skill_suggestions(&mut self) {
+        self.skill_suggestions.retain(|skill_name| is_safe_skill_name(skill_name));
+    }
+
     pub fn validate(&self) -> bool {
-        self.todos.len() <= MAX_TODO_ITEMS
+        self.raw_text.is_none()
+            && self.todos.len() <= MAX_TODO_ITEMS
             && self.todos.iter().all(|t| t.validate())
             && self.decisions.len() <= MAX_DECISIONS
             && self.decisions.iter().all(|d| d.len() <= MAX_DECISION_TEXT_LEN)
             && self.skill_suggestions.len() <= MAX_SKILL_SUGGESTIONS
             && self.skill_suggestions.iter().all(|s| s.len() <= MAX_SKILL_NAME_LEN)
-            && self.raw_text.as_ref().is_none_or(|r| r.len() <= MAX_AI_TEXT_LEN)
     }
+}
+
+fn is_safe_skill_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_SKILL_NAME_LEN
+        && !is_control_line(value)
+        && value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+}
+
+fn is_control_line(value: &str) -> bool {
+    let trimmed = value.trim_start();
+    trimmed.starts_with("TASK:")
+        || trimmed.starts_with("INTENT:")
+        || trimmed.starts_with("TEXT:")
+        || trimmed.starts_with("STRUCTURED:")
+        || trimmed.starts_with("TRANSCRIPT:")
+        || trimmed.starts_with("LAST_MESSAGES:")
+        || trimmed.starts_with("QUESTION:")
 }
 
 impl AiPayload {

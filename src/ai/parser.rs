@@ -21,7 +21,7 @@ pub fn parse_ai_payload(raw: &str) -> AiPayload {
             if let Some(value) = text_buffer.take() {
                 text = Some(value.trim().to_string());
             }
-            structured = serde_json::from_str::<StructuredOutput>(value.trim()).ok();
+            structured = parse_structured_output(value.trim());
         } else if let Some(value) = text_buffer.as_mut() {
             if !value.is_empty() {
                 value.push('\n');
@@ -52,4 +52,13 @@ fn parse_intent(value: &str) -> AiIntent {
         "Skip" => AiIntent::Skip,
         _ => AiIntent::Clarify,
     }
+}
+
+fn parse_structured_output(value: &str) -> Option<StructuredOutput> {
+    let mut output = serde_json::from_str::<StructuredOutput>(value).ok()?;
+    if !output.validate() {
+        return None;
+    }
+    output.sanitize_skill_suggestions();
+    Some(output)
 }
