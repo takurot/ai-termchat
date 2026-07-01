@@ -131,7 +131,13 @@ Select and load the appropriate skill at each phase (see [Skill Selection Guide]
 
 ### 4. Publish the Pull Request
 
-- Run formatting (`cargo fmt`) and verify with `cargo fmt --check`, and run linting (`cargo clippy`) locally to ensure zero diffs on style. Specifically verify that formatting rules (such as putting small expressions on a single line like `validate` logic) are fully applied to avoid CI `Format` job failures.
+- **Pre-publish CI gate (mandatory):** Before committing, run the exact same commands the CI workflow executes. This catches toolchain-version-specific and `--all-targets` differences that `cargo clippy` (without flags) misses:
+  ```sh
+  cargo fmt --all -- --check
+  cargo clippy --all-targets -- -D warnings
+  cargo test --tests
+  cargo build --release
+  ```
 - Review the final diff for scope, generated files, debug artifacts, secrets, and unrelated changes.
 - Create a conventional commit, push the Issue branch, and open a PR that links the Issue with `Closes #N`.
 - Include the refined plan, acceptance-criteria checklist, verification evidence, E2E results, risks, and any intentional limitations in the PR description.
@@ -267,7 +273,7 @@ Run verification at three levels.
 
 **1. Task-level verification:**
 - `cargo test <module>` or `cargo test --test <integration_file>`.
-- `cargo clippy -- -D warnings` and `cargo fmt --check`.
+- `cargo clippy --all-targets -- -D warnings` and `cargo fmt --all -- --check`.
 
 **2. Milestone-level (Phase) verification:**
 - Phase 0: Manual verification of `/summary` and `/todos` in single-node mode.
@@ -281,7 +287,7 @@ Run verification at three levels.
 ## CI and Merge Loop
 
 Merge only when:
-- `cargo clippy` and `cargo test` pass locally.
+- `cargo clippy --all-targets -- -D warnings` and `cargo test --tests` pass locally (matching CI job commands exactly).
 - Networking backward compatibility is verified (if applicable).
 - Documentation (SPEC.md/PLAN.md) is updated.
 
