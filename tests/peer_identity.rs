@@ -101,7 +101,7 @@ fn valid_signature_verification_succeeds() {
 
     let public_key_bytes = signing_key.verifying_key().to_bytes();
     let mut hasher = sha2::Sha256::new();
-    hasher.update(&public_key_bytes);
+    hasher.update(public_key_bytes);
     let fp = format!("{:x}", hasher.finalize());
     let fp_short = &fp[..12];
 
