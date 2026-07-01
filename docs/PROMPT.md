@@ -77,16 +77,16 @@ For a specified GitHub Issue `#N`, execute the following workflow autonomously f
 **Autonomous Pipeline Overview (7 phases, loop until merged):**
 
 ```
-1. PLAN     — Inspect Issue, write implementation plan
-2. REVIEW   — Sub-agents review plan from multiple perspectives → refine until solid
-3. IMPLEMENT— TDD: red-green-refactor; use E2E for debugging wherever possible
-4. PUBLISH  — Tests + E2E green → commit, push, open PR with evidence
-5. REVIEW   — Sub-agents review PR diff from multiple perspectives → post findings
-6. FIX      — Address findings → commit, push → re-review if needed → repeat
-7. MERGE    — Tests + E2E + CI green → merge
+1. PLAN        — Inspect Issue, write implementation plan
+2. PLAN-REVIEW — Sub-agents review plan from multiple perspectives → refine until solid
+3. IMPLEMENT   — TDD: red-green-refactor; test at the appropriate level
+4. PUBLISH     — Tests + E2E green → commit, push, open PR with evidence
+5. PR-REVIEW   — Sub-agents review PR diff from multiple perspectives → post findings
+6. FIX         — Address findings → commit, push → loop to 5 if fix changes behavior/boundaries
+7. MERGE       — Tests + E2E + CI green → merge
 ```
 
-Select and load the appropriate skill at each phase (see [Skill Selection Guide](#skill-selection-guide) below). Use sub-agents for parallel independent reviews.
+Select and load the appropriate skill at each phase (see [Skill Selection Guide](#skill-selection-guide) below). Use sub-agents for parallel independent reviews. If sub-agent spawning is unavailable, perform reviews sequentially in the primary agent, loading each skill in turn.
 
 ### 1. Inspect and Plan
 
@@ -102,14 +102,14 @@ Select and load the appropriate skill at each phase (see [Skill Selection Guide]
 - Send the draft plan to independent read-only sub-agents before implementation.
 - Instruct each sub-agent to load a specific skill for its review perspective before analyzing the plan:
   - `plan-architecture` — architecture, dependencies, compatibility, unnecessary complexity
-  - `review` — correctness, edge cases, regression risk, TDD/E2E coverage
+  - `review` — correctness, edge cases, regression risk, Issue acceptance criteria
   - `security-review` — security, validation, concurrency, data integrity, operational risk
   - `tdd-workflow` — test strategy, E2E coverage gaps, verification steps
 - Cover at least these perspectives, combining roles only for a genuinely small change:
   - architecture, dependencies, compatibility, and unnecessary complexity;
-  - correctness, edge cases, regression risk, and TDD/E2E coverage;
+  - correctness, edge cases, regression risk, and Issue acceptance criteria;
   - security, validation, concurrency, data integrity, and operational risk where applicable;
-  - Issue acceptance criteria, user-visible behavior, and documentation completeness.
+  - test strategy, E2E coverage gaps, and verification completeness.
 - Require reviewers to identify concrete omissions, contradictions, and unverifiable steps rather than merely approve the plan.
 - Reconcile conflicting feedback, record any rejected recommendation with a reason, and update the plan. The primary agent owns the final plan and integration decisions.
 - Begin implementation only after the refined plan has explicit verification steps for every acceptance criterion.
@@ -119,7 +119,12 @@ Select and load the appropriate skill at each phase (see [Skill Selection Guide]
 - Load `tdd-workflow` skill for test-first methodology guidance.
 - Follow red-green-refactor for each behavioral unit: add a failing test, make the smallest implementation pass, then clean up without changing behavior.
 - **Always add tests for new features.** Add regression tests for bugs and integration/E2E tests for user-visible or cross-component flows.
-- **Prefer E2E for debugging.** When a bug or behavioral issue arises, write or extend an E2E test to reproduce it before fixing. Use `e2e-testing` skill for browser-accessible flows and `qa-browser` for UI-level regressions. E2E tests catch integration issues that unit tests miss and serve as living acceptance criteria.
+- **Choose test level by bug type:**
+  - Isolated logic, parsing, or runtime bugs → unit test in `src/`
+  - Cross-component or user-visible flow bugs → integration or E2E test in `tests/`
+  - Networking, multi-node, or end-to-end acceptance bugs → E2E with `Application::new_for_test()`
+- **E2E test infrastructure (this project):** Use `Application::new_for_test()` for single-node flows, multiple `Application` instances with distinct `discovery_port` for multi-node flows, and mock the AI sidecar via `write_executable_script()` + `config_with_ai_script()`. Run isolated: `cargo test --test <file> <test_name>`. Place tests in `tests/` alongside the relevant feature file.
+- When a bug arises, write a failing test at the appropriate level before fixing.
 - Keep changes within the Issue scope. Update `docs/SPEC.md`, `docs/PLAN.md`, and user-facing documentation when behavior or contracts change.
 - Run focused tests during development and the full local verification suite before publishing.
 - Prefer `scripts/dev-workflow.sh <reviewed-plan> "<task>" N` when it fits the task, but do not skip any mandatory step in this contract when automation is unavailable or incomplete.
@@ -141,9 +146,9 @@ Select and load the appropriate skill at each phase (see [Skill Selection Guide]
   - `security-review` — security, data safety, input validation, concurrency risks
   - `verification-loop` — build, lint, type, and test completeness
   - `coding-standards` — naming, structure, validation, and error-handling consistency
+  - `dmux-workflows` — coordinate parallel sub-agent review sessions
   - If the change touches APIs: `api-design`
-  - If the change touches backend flows: `backend-patterns`
-  - If the change touches UI: `frontend-patterns`
+  - If the change touches backend/data flows: `backend-patterns`
 - Require findings-first output with severity, rationale, concrete file and line references, and a proposed remediation or missing test.
 - Reviewers must identify concrete omissions, contradictions, and unverifiable steps rather than merely approve.
 - Deduplicate and validate findings against the source before posting them. Post all valid actionable findings to the PR; if no issues are found, post an explicit approval summary with the checks performed.
@@ -157,7 +162,7 @@ Select and load the appropriate skill at each phase (see [Skill Selection Guide]
 
 ### 7. Verify CI and Merge
 
-- Run formatting (`cargo fmt`), linting (`cargo clippy`), unit tests, integration tests, security checks, and relevant E2E scenarios locally. Load `verification-loop` and `health-check` skills to ensure full coverage. Always ensure formatting rules are perfectly applied locally before checking CI.
+- Run formatting (`cargo fmt`), linting (`cargo clippy`), unit tests, integration tests, security checks, and relevant E2E scenarios locally. Load `verification-loop` skill to ensure full coverage. Always ensure formatting rules are perfectly applied locally before checking CI.
 - Monitor all required CI checks. For deterministic failures, diagnose, fix, commit, push, and monitor CI again rather than stopping at the failure report.
 - Before merging, confirm the PR is mergeable, required approvals are present, the branch is current enough for repository policy, all required checks are green, and no blocking review thread remains unresolved.
 - Merge using the repository's standard strategy, verify the merged state, and close the Issue if GitHub did not close it automatically.
@@ -175,30 +180,30 @@ Load the appropriate skill with the `skill` tool at the start of each phase. Do 
 |-------|-------|---------|
 | 1. PLAN (inspect) | `plan-architecture` | Structure the planning approach, identify affected interfaces |
 | 1. PLAN (research) | `deep-research` | Multi-source investigation for unfamiliar domains |
-| 2. REVIEW (plan) | `plan-architecture` | Architecture, dependencies, compatibility review |
-| 2. REVIEW (plan) | `review` | Correctness, edge cases, regression risk |
-| 2. REVIEW (plan) | `security-review` | Security, validation, concurrency, data integrity |
-| 2. REVIEW (plan) | `tdd-workflow` | Test strategy, E2E coverage gaps |
+| 1. PLAN (research) | `documentation-lookup` | Primary docs lookup for library API and version-specific behavior |
+| 2. PLAN-REVIEW | `plan-architecture` | Architecture, dependencies, compatibility review |
+| 2. PLAN-REVIEW | `review` | Correctness, edge cases, regression risk |
+| 2. PLAN-REVIEW | `security-review` | Security, validation, concurrency, data integrity |
+| 2. PLAN-REVIEW | `tdd-workflow` | Test strategy, E2E coverage gaps |
 | 3. IMPLEMENT | `tdd-workflow` | Red-green-refactor discipline, test-first methodology |
-| 3. IMPLEMENT (debug) | `e2e-testing` | Reproduce bugs via E2E tests before fixing |
-| 3. IMPLEMENT (debug) | `qa-browser` | UI-level regression and browser-accessible flows |
-| 3. IMPLEMENT (freeze) | `freeze` | Scoped edit boundaries during sensitive refactors |
+| 3. IMPLEMENT (debug) | `investigate` | Root-cause analysis for bugs, regressions, and stack traces |
 | 4. PUBLISH | `verification-loop` | Build, lint, type, test — full quality gate |
 | 4. PUBLISH | `ship-release` | Release prep, documentation updates, PR readiness |
-| 5. REVIEW (PR) | `review` | Correctness, regression, code quality |
-| 5. REVIEW (PR) | `plan-architecture` | Architecture fit, maintainability |
-| 5. REVIEW (PR) | `security-review` | Security, data safety, concurrency |
-| 5. REVIEW (PR) | `tdd-workflow` | Test/E2E coverage, missing cases |
-| 5. REVIEW (PR) | `verification-loop` | Build/lint/type/test completeness |
-| 5. REVIEW (PR) | `coding-standards` | Naming, structure, error handling |
-| 5. REVIEW (PR) | `api-design` | API validation (if APIs changed) |
-| 5. REVIEW (PR) | `backend-patterns` | Backend patterns (if backend changed) |
-| 5. REVIEW (PR) | `frontend-patterns` | Frontend patterns (if UI changed) |
-| 6. FIX | (same as IMPLEMENT skills) | TDD + E2E for remediation |
+| 5. PR-REVIEW | `review` | Correctness, regression, code quality |
+| 5. PR-REVIEW | `plan-architecture` | Architecture fit, maintainability |
+| 5. PR-REVIEW | `security-review` | Security, data safety, concurrency |
+| 5. PR-REVIEW | `tdd-workflow` | Test/E2E coverage, missing cases |
+| 5. PR-REVIEW | `verification-loop` | Build/lint/type/test completeness |
+| 5. PR-REVIEW | `coding-standards` | Naming, structure, error handling |
+| 5. PR-REVIEW | `dmux-workflows` | Coordinate parallel sub-agent review sessions |
+| 5. PR-REVIEW | `api-design` | API validation (if APIs changed) |
+| 5. PR-REVIEW | `backend-patterns` | Backend patterns (if backend/data flows changed) |
+| 6. FIX | `tdd-workflow` | Test-first remediation of defects |
+| 6. FIX | `investigate` | Root-cause analysis (if finding needs investigation) |
 | 7. MERGE | `verification-loop` | Final quality gate before merge |
-| 7. MERGE | `health-check` | Build, lint, type, test, security status |
-| All phases | `careful` | Destructive-action warnings (writes, deletes) |
+| 7. MERGE | `health-check` | Build, lint, type, test, security pass/fail summary |
 | All phases | `guard` | Combined safety: destructive warnings + edit boundaries |
+| All phases | `dmux-workflows` | Parallel task orchestration across sub-agents and worktrees |
 
 Use `find-skills` to discover additional skills when needed. When a skill is loaded, follow its workflow instructions precisely.
 
@@ -243,7 +248,10 @@ Before creating a worktree:
 
 For every task:
 - **Test First:** Write unit tests in `src/` or integration tests in `tests/` before implementation.
-- **E2E for Debugging:** When a bug or unexpected behavior is discovered, write an E2E test to reproduce it before fixing. E2E tests provide the highest confidence for user-visible and cross-component issues. Use unit tests for isolated logic and E2E tests for flows that span multiple components.
+- **Choose Test Level by Context:**
+  - Isolated logic, parsing, or runtime → unit test in `src/`
+  - Cross-component or user-visible flow → integration or E2E test in `tests/`
+  - Networking, multi-node, or end-to-end acceptance → E2E with `Application::new_for_test()`
 - **New Features Require Tests:** Every new feature must include corresponding tests — unit tests for logic, integration/E2E tests for user-visible or cross-component behavior.
 - **Surgical Changes:** Follow the guidelines in AGENTS.md. Touch only what you must. Do not "improve" or refactor adjacent code, comments, or formatting unless requested.
 - **No Unwraps:** Never use `unwrap()` or `expect()` in production paths. Use `anyhow` for app-level errors and `thiserror` for library-level errors.
