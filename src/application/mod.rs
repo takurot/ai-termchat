@@ -36,6 +36,7 @@ use crate::message::{
 use crate::room::transcript::TranscriptEntry;
 use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
+use crate::secure::SecureState;
 use crate::state::{
     AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State,
     PeerReadiness,
@@ -75,6 +76,7 @@ pub struct Application<'a> {
     config_file_path: Option<PathBuf>,
     discovery_retries_remaining: usize,
     signing_key: ed25519_dalek::SigningKey,
+    secure_state: SecureState,
 }
 
 impl<'a> Application<'a> {
@@ -207,6 +209,7 @@ impl<'a> Application<'a> {
             config_file_path,
             discovery_retries_remaining: 0,
             signing_key,
+            secure_state: SecureState::default(),
         })
     }
 
@@ -299,6 +302,7 @@ impl<'a> Application<'a> {
                 }
                 NetEvent::Disconnected(endpoint) => {
                     self.state.disconnected_user(endpoint);
+                    self.secure_state.remove(endpoint);
                     self.ring_the_bell();
                 }
             },
@@ -499,6 +503,12 @@ impl<'a> Application<'a> {
                     trust_state,
                     short_fingerprint(&fp)
                 ));
+
+                self.state.add_peer_public_key(endpoint, public_key);
+
+                if peer.user_name < self.config.user_name {
+                    self.initiate_key_exchange(endpoint);
+                }
             }
             NetMessage::RoomCreate(room_id, member_ids) => {
                 if !self.accepts_authenticated_peer_message(endpoint, "room invite") {
@@ -507,9 +517,7 @@ impl<'a> Application<'a> {
                 if member_ids.iter().any(|member_id| member_id == &self.config.user_name) {
                     let room = self.state.accept_room(&room_id, &member_ids, None);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
-                    self.node
-                        .network()
-                        .send(endpoint, self.encoder.encode(NetMessage::RoomJoin(room.id.clone())));
+                    self.send_secure_to_peer(endpoint, NetMessage::RoomJoin(room.id.clone()));
                 }
             }
             NetMessage::RoomCreateV2 { room_id, members, ai_mode } => {
@@ -519,9 +527,7 @@ impl<'a> Application<'a> {
                 if members.iter().any(|member_id| member_id == &self.config.user_name) {
                     let room = self.state.accept_room(&room_id, &members, ai_mode);
                     self.state.add_system_info_message(format!("joined room {}", room.id));
-                    self.node
-                        .network()
-                        .send(endpoint, self.encoder.encode(NetMessage::RoomJoin(room.id.clone())));
+                    self.send_secure_to_peer(endpoint, NetMessage::RoomJoin(room.id.clone()));
                 }
             }
             NetMessage::RoomJoin(room_id) => {
@@ -536,6 +542,12 @@ impl<'a> Application<'a> {
                     return;
                 }
                 self.record_skill_done(payload, false);
+            }
+            NetMessage::KeyExchange { public_key, signature } => {
+                self.process_key_exchange(endpoint, public_key, signature);
+            }
+            NetMessage::Secure(encrypted) => {
+                self.process_secure_message(endpoint, encrypted);
             }
         }
     }
@@ -582,6 +594,150 @@ impl<'a> Application<'a> {
             message_kind, user
         ));
         false
+    }
+
+    fn initiate_key_exchange(&mut self, endpoint: Endpoint) {
+        use ed25519_dalek::Signer;
+        let exchange = crate::secure::generate_key_exchange();
+        let public_bytes = exchange.public.to_bytes().to_vec();
+        let signature = self.signing_key.sign(&public_bytes).to_bytes().to_vec();
+        let msg = NetMessage::KeyExchange { public_key: public_bytes, signature };
+        self.secure_state.pending_key_exchanges.insert(endpoint, exchange);
+        self.node.network().send(endpoint, self.encoder.encode(msg));
+    }
+
+    fn process_key_exchange(
+        &mut self,
+        endpoint: Endpoint,
+        public_key: Vec<u8>,
+        signature: Vec<u8>,
+    ) {
+        if let Some(peer_ed_pk) = self.state.peer_public_key(endpoint).cloned() {
+            use ed25519_dalek::Verifier;
+            let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(
+                &peer_ed_pk.clone().try_into().unwrap_or([0u8; 32]),
+            ) {
+                Ok(key) => key,
+                Err(_) => {
+                    self.state.add_system_warn_message(
+                        "KeyExchange: invalid stored peer public key".into(),
+                    );
+                    return;
+                }
+            };
+            let sig = match ed25519_dalek::Signature::from_slice(&signature) {
+                Ok(s) => s,
+                Err(_) => {
+                    self.state
+                        .add_system_warn_message("KeyExchange: invalid signature format".into());
+                    return;
+                }
+            };
+            if verifying_key.verify(&public_key, &sig).is_err() {
+                self.state
+                    .add_system_warn_message("KeyExchange: signature verification failed".into());
+                return;
+            }
+        } else {
+            self.state
+                .add_system_warn_message("KeyExchange: peer not authenticated, ignoring".into());
+            return;
+        }
+
+        let peer_x25519: [u8; 32] = match public_key.clone().try_into() {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                self.state.add_system_warn_message("KeyExchange: invalid key length".into());
+                return;
+            }
+        };
+
+        if let Some(exchange) = self.secure_state.pending_key_exchanges.remove(&endpoint) {
+            let session =
+                crate::secure::complete_key_exchange_as_initiator(exchange.secret, &peer_x25519);
+            if let Some(session) = session {
+                self.secure_state.sessions.insert(endpoint, session);
+            }
+        } else {
+            let exchange = crate::secure::generate_key_exchange();
+            let session =
+                crate::secure::complete_key_exchange_as_responder(exchange.secret, &peer_x25519);
+            if let Some(session) = session {
+                self.secure_state.sessions.insert(endpoint, session);
+
+                let our_public_bytes = exchange.public.to_bytes().to_vec();
+                use ed25519_dalek::Signer;
+                let our_signature = self.signing_key.sign(&our_public_bytes).to_bytes().to_vec();
+                let msg = NetMessage::KeyExchange {
+                    public_key: our_public_bytes,
+                    signature: our_signature,
+                };
+                self.node.network().send(endpoint, self.encoder.encode(msg));
+            }
+        }
+    }
+
+    fn process_secure_message(&mut self, endpoint: Endpoint, data: Vec<u8>) {
+        let inner_message = {
+            if let Some(session) = self.secure_state.session_mut(endpoint) {
+                session.decrypt(&data)
+            } else {
+                self.state.add_system_warn_message(
+                    "received secure message from peer without active session".into(),
+                );
+                return;
+            }
+        };
+
+        let Some(inner_bytes) = inner_message else {
+            self.state.add_system_warn_message("failed to decrypt secure message".into());
+            return;
+        };
+
+        let config = bincode::config::legacy().with_limit::<{ crate::encoder::MAX_FRAME_SIZE }>();
+        let inner_msg: NetMessage = match bincode::serde::decode_from_slice(&inner_bytes, config) {
+            Ok((msg, _)) => msg,
+            Err(_) => {
+                self.state.add_system_warn_message(
+                    "failed to decode inner message from secure envelope".into(),
+                );
+                return;
+            }
+        };
+
+        if !inner_msg.validate() {
+            return;
+        }
+
+        self.process_network_message(endpoint, inner_msg);
+    }
+
+    fn send_secure_to_peer(&mut self, endpoint: Endpoint, message: NetMessage) {
+        if self.secure_state.has_session(endpoint) {
+            let serialized =
+                bincode::serde::encode_to_vec(&message, bincode::config::legacy()).unwrap();
+            let encrypted = {
+                let session = self.secure_state.session_mut(endpoint).unwrap();
+                session.encrypt(&serialized)
+            };
+            let mut buf = Vec::new();
+            bincode::serde::encode_into_std_write(
+                NetMessage::Secure(encrypted),
+                &mut buf,
+                bincode::config::legacy(),
+            )
+            .unwrap();
+            self.node.network().send(endpoint, &buf);
+        } else {
+            self.node.network().send(endpoint, self.encoder.encode(message));
+        }
+    }
+
+    fn broadcast_secure_to_users(&mut self, message: &NetMessage) {
+        let endpoints = self.state.all_user_endpoints();
+        for endpoint in endpoints {
+            self.send_secure_to_peer(endpoint, message.clone());
+        }
     }
 
     fn process_terminal_event(&mut self, term_event: TermEvent) -> Result<()> {
@@ -675,10 +831,7 @@ impl<'a> Application<'a> {
                     format!("{} (me)", self.config.user_name),
                     MessageType::Text(input.clone()),
                 ));
-                let message = self.encoder.encode(NetMessage::UserMessage(input.clone()));
-                let endpoints = self.state.all_user_endpoints();
-                crate::util::send_all(self.node.network(), &endpoints, message)
-                    .report_if_err(&mut self.state);
+                self.broadcast_secure_to_users(&NetMessage::UserMessage(input.clone()));
                 self.state.human_streak += 1;
                 let trigger = TriggerConfig::from_frequency_and_mode(
                     self.state.ai_frequency.clone(),
@@ -770,7 +923,6 @@ impl<'a> Application<'a> {
                     .collect::<Vec<_>>();
 
                 // Broadcast RoomCreate (V1 or V2 depending on peer version)
-                let mut errors = Vec::new();
                 for &endpoint in &target_endpoints {
                     let message = if self.peer_supports_room_create_v2(endpoint) {
                         NetMessage::RoomCreateV2 {
@@ -781,23 +933,7 @@ impl<'a> Application<'a> {
                     } else {
                         NetMessage::RoomCreate(room.id.clone(), member_ids.clone())
                     };
-
-                    let encoded = self.encoder.encode(message);
-                    match self.node.network().send(endpoint, encoded) {
-                        message_io::network::SendStatus::Sent => (),
-                        status => {
-                            errors.push((
-                                endpoint,
-                                std::io::Error::other(format!(
-                                    "Send failed with status: {:?}",
-                                    status
-                                )),
-                            ));
-                        }
-                    }
-                }
-                if !errors.is_empty() {
-                    Err(errors).report_if_err(&mut self.state);
+                    self.send_secure_to_peer(endpoint, message);
                 }
 
                 self.state.add_system_info_message(format!("created room {}", room.id));
@@ -1204,10 +1340,7 @@ impl<'a> Application<'a> {
             );
         }
         if broadcast {
-            let message = self.encoder.encode(NetMessage::AiMessage(payload.clone()));
-            let endpoints = self.state.all_user_endpoints();
-            crate::util::send_all(self.node.network(), &endpoints, message)
-                .report_if_err(&mut self.state);
+            self.broadcast_secure_to_users(&NetMessage::AiMessage(payload.clone()));
         }
         self.ring_the_bell();
     }
@@ -1247,11 +1380,7 @@ impl<'a> Application<'a> {
         let transcript_entry = TranscriptEntry::ai(room_id, "ops-ai", text, None, None, "skill");
         self.state.add_message_with_transcript(message, transcript_entry);
         if broadcast {
-            let net_message = NetMessage::SkillResult(payload);
-            let message = self.encoder.encode(net_message);
-            let endpoints = self.state.all_user_endpoints();
-            crate::util::send_all(self.node.network(), &endpoints, message)
-                .report_if_err(&mut self.state);
+            self.broadcast_secure_to_users(&NetMessage::SkillResult(payload));
         }
     }
 
@@ -1274,6 +1403,10 @@ impl<'a> Application<'a> {
 
     pub fn state(&self) -> &State {
         &self.state
+    }
+
+    pub fn has_secure_session(&self, endpoint: Endpoint) -> bool {
+        self.secure_state.has_session(endpoint)
     }
 
     pub fn handle_input_line_for_test(&mut self, input: &str) -> Result<()> {

@@ -1029,7 +1029,7 @@ impl Default for LanguageConfig {
 - `trusted_peers` に含まれる peer のみスキル実行を許可
 - `risk: medium|high` のスキルは明示承認が必要
 - Transcript はローカル保存のみ
-- TCP/UDP transport 自体はまだ暗号化されていない。LAN 上の盗聴対策には Noise/rustls 等の protocol upgrade が必要
+- TCP 通信は鍵交換 (x25519) 後 ChaCha20Poly1305 で暗号化される。鍵交換は PeerIdentity 署名検証後に開始し、x25519 公開鍵に ed25519 署名を付与して送信する。暗号化セッション確立後、チャットメッセージやスキル結果等のペイロードは `NetMessage::Secure` で暗号化転送される。未暗号化ピアとは従来の平文通信も許容する
 
 ---
 

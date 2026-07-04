@@ -36,7 +36,7 @@ docs/SPEC.md
 - [x] `AiMessage`, `RoomCreate`, `RoomCreateV2`, `RoomJoin`, `SkillResult` を署名検証済み endpoint からのみ受理
 - [x] 認証済み endpoint の `PeerInfo` identity 差し替えを拒否して切断
 - [x] 未認証 peer からの spoofed chat / room invite / AI output / skill result を拒否する regression test を追加
-- [x] TCP/UDP transport 暗号化は未実装の残リスクとして `docs/SPEC.md` に明記
+- [x] TCP/UDP transport 暗号化は未実装の残リスクとして `docs/SPEC.md` に明記（→ 後続作業で ChaCha20Poly1305 + x25519 鍵交換を実装済み、`src/secure.rs`）
 
 ---
 

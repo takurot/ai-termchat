@@ -13,4 +13,5 @@ pub mod ui;
 mod util;
 mod encoder;
 pub mod config;
+pub mod secure;
 pub use message::{AiIntent, AiPayload, MemberId, PeerInfo, RoomId, StructuredOutput, TodoItem};
