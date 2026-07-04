@@ -4,7 +4,6 @@ use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::{Aead, OsRng};
 use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
 use message_io::network::Endpoint;
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -67,14 +66,6 @@ fn derive_keys(shared_secret: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
     let recv_key: [u8; 32] = hasher.finalize().into();
 
     (send_key, recv_key)
-}
-
-pub fn build_key_exchange(secret: &EphemeralSecret) -> (PublicKey, Vec<u8>) {
-    let public = PublicKey::from(secret);
-    let mut rng = OsRng;
-    let mut dummy = [0u8; 32];
-    rng.fill_bytes(&mut dummy);
-    (public, public.to_bytes().to_vec())
 }
 
 pub fn complete_key_exchange_as_initiator(

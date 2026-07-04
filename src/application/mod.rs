@@ -715,18 +715,31 @@ impl<'a> Application<'a> {
     fn send_secure_to_peer(&mut self, endpoint: Endpoint, message: NetMessage) {
         if self.secure_state.has_session(endpoint) {
             let serialized =
-                bincode::serde::encode_to_vec(&message, bincode::config::legacy()).unwrap();
+                match bincode::serde::encode_to_vec(&message, bincode::config::legacy()) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        self.state
+                            .add_system_error_message(format!("bincode encode failed: {}", e));
+                        return;
+                    }
+                };
             let encrypted = {
-                let session = self.secure_state.session_mut(endpoint).unwrap();
-                session.encrypt(&serialized)
+                if let Some(session) = self.secure_state.session_mut(endpoint) {
+                    session.encrypt(&serialized)
+                } else {
+                    self.state.add_system_error_message("session lost unexpectedly".to_string());
+                    return;
+                }
             };
             let mut buf = Vec::new();
-            bincode::serde::encode_into_std_write(
+            if let Err(e) = bincode::serde::encode_into_std_write(
                 NetMessage::Secure(encrypted),
                 &mut buf,
                 bincode::config::legacy(),
-            )
-            .unwrap();
+            ) {
+                self.state.add_system_error_message(format!("bincode encode failed: {}", e));
+                return;
+            }
             self.node.network().send(endpoint, &buf);
         } else {
             self.node.network().send(endpoint, self.encoder.encode(message));
