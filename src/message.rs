@@ -103,6 +103,8 @@ pub enum NetMessage {
     RoomJoin(RoomId),
     SkillResult(SkillResultPayload),
     PeerIdentity { public_key: Vec<u8>, signature: Vec<u8>, timestamp: u64 },
+    KeyExchange { public_key: Vec<u8>, signature: Vec<u8> },
+    Secure(Vec<u8>),
 }
 
 pub const MAX_NAME_LEN: usize = 256;
@@ -218,6 +220,10 @@ impl NetMessage {
             NetMessage::PeerIdentity { public_key, signature, timestamp: _ } => {
                 public_key.len() == 32 && signature.len() == 64
             }
+            NetMessage::KeyExchange { public_key, signature } => {
+                public_key.len() == 32 && signature.len() == 64
+            }
+            NetMessage::Secure(data) => !data.is_empty(), // At minimum, 8B nonce + 16B tag
         }
     }
 }

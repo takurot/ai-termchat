@@ -157,6 +157,7 @@ pub struct State {
     downloads_base_dir: Option<PathBuf>,
     verified_peer_fingerprints: HashMap<Endpoint, String>,
     signature_replay_cache: HashSet<Vec<u8>>,
+    peer_public_keys: HashMap<Endpoint, Vec<u8>>,
     pub ai_state: AiState,
     pub ai_provider: AiProvider,
     pub ai_mode: AiMode,
@@ -206,6 +207,7 @@ impl Default for State {
             downloads_base_dir: None,
             verified_peer_fingerprints: HashMap::new(),
             signature_replay_cache: HashSet::new(),
+            peer_public_keys: HashMap::new(),
             ai_state: AiState::Idle,
             ai_provider: AiProvider::Claude,
             ai_mode: AiMode::Clerk,
@@ -666,6 +668,18 @@ impl State {
 
     pub fn insert_replay_signature(&mut self, signature: Vec<u8>) {
         self.signature_replay_cache.insert(signature);
+    }
+
+    pub fn add_peer_public_key(&mut self, endpoint: Endpoint, public_key: Vec<u8>) {
+        self.peer_public_keys.insert(endpoint, public_key);
+    }
+
+    pub fn peer_public_key(&self, endpoint: Endpoint) -> Option<&Vec<u8>> {
+        self.peer_public_keys.get(&endpoint)
+    }
+
+    pub fn remove_peer_public_key(&mut self, endpoint: Endpoint) {
+        self.peer_public_keys.remove(&endpoint);
     }
 
     pub fn peer_names(&self) -> Vec<String> {
