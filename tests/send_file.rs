@@ -153,6 +153,17 @@ fn send_file() {
 
     sender.handle_input_line_for_test(&format!("/send {}", test_path.display())).unwrap();
 
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(5), |_, right| {
+        right.state().pending_transfer_offer().is_some()
+    });
+
+    receiver.handle_input_line_for_test("/accept test").unwrap();
+
+    for _ in 0..20 {
+        let _ = sender.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+        let _ = receiver.process_next_event_with_timeout_for_test(Duration::from_millis(50));
+    }
+
     let received_path = std::env::temp_dir().join("triadchat/downloads").join("1").join("test");
     let expected_len = data.len() as u64;
     pump_until(&mut sender, &mut receiver, Duration::from_secs(20), |_, _| {
@@ -260,4 +271,100 @@ fn disconnected_user_clears_active_transfers() {
     app.disconnect_peer_for_test(endpoint);
 
     assert_eq!(tx_bytes(&app, "sender", "test.txt"), None);
+}
+
+#[test]
+fn transfer_reject_sends_rejection() {
+    let triadchat_dir = std::env::temp_dir().join("triadchat-reject");
+    let test_path = triadchat_dir.join("reject_test.bin");
+    let _ = std::fs::remove_dir_all(&triadchat_dir);
+    std::fs::create_dir_all(&triadchat_dir).unwrap();
+    let data = vec![88u8; 512];
+    std::fs::write(&test_path, &data).unwrap();
+
+    let discovery_port = 42000 + (rand::random::<u16>() % 1000);
+    let config1 = test_config("sender", discovery_port);
+    let config2 = test_config("receiver", discovery_port + 1);
+    let mut sender = Application::new_for_test(&config1).unwrap();
+    let mut receiver = Application::new_for_test(&config2).unwrap();
+
+    sender.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    receiver.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    sender.connect_peer_for_test(receiver.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(3), |left, right| {
+        left.state().peers().len() == 1 && right.state().peers().len() == 1
+    });
+
+    sender.handle_input_line_for_test(&format!("/send {}", test_path.display())).unwrap();
+
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(5), |_, right| {
+        right.state().pending_transfer_offer().is_some()
+    });
+
+    receiver.handle_input_line_for_test("/reject reject_test.bin").unwrap();
+
+    assert!(receiver.state().pending_transfer_offer().is_none());
+    let rendered = receiver
+        .state()
+        .messages()
+        .iter()
+        .map(|m| m.rendered_text())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rendered.contains("rejected transfer"), "got: {}", rendered);
+}
+
+#[test]
+fn unsolicited_chunk_rejected_without_offer() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+    app.inject_authenticated_peer_for_test("attacker", "fp:attacker:test");
+
+    let endpoint = app.state().peer_endpoint_by_name("attacker").unwrap();
+    app.inject_network_message_for_test(
+        endpoint,
+        triadchat::message::NetMessage::UserData("evil.bin".into(), Chunk::Data(vec![0u8; 64])),
+    );
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(
+        rendered.contains("rejected unsolicited file chunk"),
+        "expected rejection warning, got: {}",
+        rendered
+    );
+}
+
+#[test]
+fn oversized_transfer_rejected() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+    app.inject_authenticated_peer_for_test("sender", "fp:sender:oversized");
+
+    let endpoint = app.state().peer_endpoint_by_name("sender").unwrap();
+    app.inject_network_message_for_test(
+        endpoint,
+        triadchat::message::NetMessage::TransferOffer {
+            file_name: "huge.bin".into(),
+            file_size: 200 * 1024 * 1024, // 200 MB, exceeds 100 MB limit
+            sender: "sender".into(),
+        },
+    );
+
+    let rendered =
+        app.state().messages().iter().map(|m| m.rendered_text()).collect::<Vec<_>>().join("\n");
+    assert!(
+        rendered.contains("rejected: 209715200"),
+        "expected oversize rejection, got: {}",
+        rendered
+    );
+    assert!(
+        app.state().pending_transfer_offer().is_none(),
+        "oversized offer should not be stored as pending"
+    );
 }

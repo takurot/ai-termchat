@@ -25,6 +25,7 @@ use crate::commands::room_cmd::{PeersCommand, RoomCommand};
 use crate::commands::send_file::SendFileCommand;
 use crate::commands::skill_cmd::{CancelCommand, RunCommand, SkillCommand, SkillsCommand};
 use crate::commands::summary_cmd::SummaryCommand;
+use crate::commands::transfer_cmd::{AcceptCommand, RejectCommand};
 use crate::commands::{
     AppCommand, AvatarCommandKind, CommandManager, ParsedCommand, SummaryCommandKind,
 };
@@ -38,8 +39,8 @@ use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
 use crate::secure::SecureState;
 use crate::state::{
-    AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, ScrollMovement, State,
-    PeerReadiness,
+    AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, PeerReadiness,
+    PendingTransferOffer, ScrollMovement, State,
 };
 use crate::skill::executor::{PendingSkillExecution, SkillExecutor};
 use crate::skill::registry::{InvokeMode, RiskLevel};
@@ -136,7 +137,9 @@ impl<'a> Application<'a> {
             .with(SummaryCommand::decisions())
             .with(SummaryCommand::context())
             .with(AvatarCommand)
-            .with(ArtCommand);
+            .with(ArtCommand)
+            .with(AcceptCommand)
+            .with(RejectCommand);
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut state = State::default();
@@ -556,6 +559,18 @@ impl<'a> Application<'a> {
             }
             NetMessage::Secure(encrypted) => {
                 self.process_secure_message(endpoint, encrypted);
+            }
+            NetMessage::TransferOffer { file_name, file_size, sender } => {
+                self.process_transfer_offer(endpoint, file_name, file_size, sender);
+            }
+            NetMessage::TransferAccept { file_name } => {
+                self.process_transfer_accept(endpoint, file_name);
+            }
+            NetMessage::TransferReject { file_name, reason } => {
+                self.process_transfer_reject(endpoint, file_name, reason);
+            }
+            NetMessage::TransferCancel { file_name } => {
+                self.process_transfer_cancel(endpoint, file_name);
             }
         }
     }
@@ -1155,6 +1170,8 @@ impl<'a> Application<'a> {
                 self.queue_or_run_skill(proposal.skill_name, Vec::new());
             }
             AppCommand::Cancel => self.cancel_active_task(),
+            AppCommand::AcceptTransfer(filename) => self.accept_transfer(filename),
+            AppCommand::RejectTransfer(filename) => self.reject_transfer(filename),
             AppCommand::Avatar(kind) => self.process_avatar_command(kind),
             AppCommand::ArtList => {
                 if self.art_dict.is_empty() {
@@ -1548,6 +1565,138 @@ impl<'a> Application<'a> {
         self.state.add_verified_peer_fingerprint(endpoint, fingerprint.to_string());
     }
 
+    fn process_transfer_offer(
+        &mut self,
+        endpoint: Endpoint,
+        file_name: String,
+        file_size: u64,
+        sender: String,
+    ) {
+        if !self.accepts_authenticated_peer_message(endpoint, "transfer offer") {
+            let _ = self.state.user_name(endpoint).map(|u| u.to_string());
+            return;
+        }
+        if file_size > crate::message::MAX_TRANSFER_SIZE {
+            self.state.add_system_warn_message(format!(
+                "transfer offer from {} for '{}' rejected: {} exceeds max {}",
+                sender,
+                file_name,
+                file_size,
+                crate::message::MAX_TRANSFER_DISPLAY_NAME,
+            ));
+            self.send_secure_to_peer(
+                endpoint,
+                NetMessage::TransferReject {
+                    file_name,
+                    reason: format!(
+                        "Exceeds max size ({})",
+                        crate::message::MAX_TRANSFER_DISPLAY_NAME
+                    ),
+                },
+            );
+            return;
+        }
+        self.state.set_pending_transfer_offer(PendingTransferOffer {
+            sender,
+            file_name: file_name.clone(),
+            file_size,
+        });
+        self.state.add_system_info_message(format!(
+            "incoming file '{}' ({} bytes) — type /accept <name> or /reject <name>",
+            file_name, file_size
+        ));
+    }
+
+    fn process_transfer_accept(&mut self, _endpoint: Endpoint, file_name: String) {
+        self.state.mark_outbound_transfer_accepted(&file_name);
+        self.state.add_system_info_message(format!("peer accepted transfer of '{}'", file_name));
+    }
+
+    fn process_transfer_reject(&mut self, _endpoint: Endpoint, file_name: String, reason: String) {
+        // Receiver side cleanup happens via /cancel or timeout.
+        self.state.add_system_warn_message(format!(
+            "transfer of '{}' rejected by peer: {}",
+            file_name, reason
+        ));
+    }
+
+    fn process_transfer_cancel(&mut self, _endpoint: Endpoint, file_name: String) {
+        self.state.clear_pending_transfer_offer();
+        self.state.add_system_info_message(format!("peer cancelled transfer of '{}'", file_name));
+    }
+
+    fn accept_transfer(&mut self, file_name: String) {
+        let Some(offer) = self.state.take_pending_transfer_offer() else {
+            self.state.add_system_warn_message("no pending transfer to accept".into());
+            return;
+        };
+        if offer.file_name != file_name {
+            self.state.add_system_warn_message(format!(
+                "pending transfer name mismatch: expected '{}', got '{}'",
+                offer.file_name, file_name
+            ));
+            self.state.set_pending_transfer_offer(offer);
+            return;
+        }
+        let sender_endpoint = self.state.peer_endpoint_by_name(&offer.sender);
+        match sender_endpoint {
+            Some(endpoint) => {
+                self.send_secure_to_peer(
+                    endpoint,
+                    NetMessage::TransferAccept { file_name: offer.file_name.clone() },
+                );
+            }
+            None => {
+                self.state.add_system_warn_message(format!(
+                    "unknown sender '{}'; transfer cancelled",
+                    offer.sender
+                ));
+                return;
+            }
+        }
+        let sanitized_user = sanitize_filename(&offer.sender);
+        let sanitized_file = sanitize_filename(&file_name);
+        let data_dir = self
+            .state
+            .downloads_base_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("triadchat/downloads")
+            .join(&sanitized_user);
+        let _ = std::fs::create_dir_all(&data_dir);
+        let unique_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+        let temp_name = format!(".{}.tmp_{}", sanitized_file, unique_id);
+        let dl_path = data_dir.join(temp_name);
+        if let Ok(f) = std::fs::File::create(&dl_path) {
+            drop(f);
+        }
+        self.state.start_transfer(offer.sender.clone(), file_name.clone(), dl_path);
+        self.state.add_system_info_message(format!(
+            "accepted transfer of '{}' from {} ({} bytes)",
+            file_name, offer.sender, offer.file_size
+        ));
+    }
+
+    fn reject_transfer(&mut self, _file_name: String) {
+        let Some(offer) = self.state.take_pending_transfer_offer() else {
+            self.state.add_system_warn_message("no pending transfer to reject".into());
+            return;
+        };
+        let sender_endpoint = self.state.peer_endpoint_by_name(&offer.sender);
+        if let Some(endpoint) = sender_endpoint {
+            self.send_secure_to_peer(
+                endpoint,
+                NetMessage::TransferReject {
+                    file_name: offer.file_name.clone(),
+                    reason: "rejected by user".into(),
+                },
+            );
+        }
+        self.state.add_system_info_message(format!(
+            "rejected transfer of '{}' from {}",
+            offer.file_name, offer.sender
+        ));
+    }
+
     fn process_user_data(&mut self, user_name: &str, file_name: &str, chunk: Chunk) {
         use std::io::Write;
         let sanitized_user = sanitize_filename(user_name);
@@ -1611,39 +1760,20 @@ impl<'a> Application<'a> {
                 }
             }
             Chunk::Data(data) => {
-                let mut try_write = || -> Result<()> {
-                    let temp_path = if let Some(path) =
-                        self.state.get_transfer_temp_path(&sanitized_user, &sanitized_file)
-                    {
-                        path.clone()
-                    } else {
-                        let data_dir = self
-                            .state
-                            .downloads_base_dir()
-                            .unwrap_or_else(std::env::temp_dir)
-                            .join("triadchat/downloads")
-                            .join(&sanitized_user);
-                        std::fs::create_dir_all(&data_dir)?;
-
-                        let unique_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-                        let temp_name = format!(".{}.tmp_{}", sanitized_file, unique_id);
-                        let temp_path = data_dir.join(temp_name);
-
-                        std::fs::OpenOptions::new()
-                            .create(true)
-                            .write(true)
-                            .truncate(true)
-                            .open(&temp_path)?;
-
-                        self.state.start_transfer(
-                            sanitized_user.clone(),
-                            sanitized_file.clone(),
-                            temp_path.clone(),
-                        );
-                        temp_path
+                let temp_path =
+                    match self.state.get_transfer_temp_path(&sanitized_user, &sanitized_file) {
+                        Some(path) => path.clone(),
+                        None => {
+                            self.state.add_system_warn_message(format!(
+                                "rejected unsolicited file chunk for '{}' from {}",
+                                sanitized_file, user_name
+                            ));
+                            return;
+                        }
                     };
 
-                    std::fs::OpenOptions::new().append(true).open(temp_path)?.write_all(&data)?;
+                let mut try_write = || -> Result<()> {
+                    std::fs::OpenOptions::new().append(true).open(&temp_path)?.write_all(&data)?;
                     self.state.record_transfer_bytes(
                         &sanitized_user,
                         &sanitized_file,
@@ -1663,6 +1793,22 @@ impl<'a> Application<'a> {
         chunk: Chunk,
         user_name: &str,
     ) {
+        let sanitized_user = sanitize_filename(user_name);
+        let sanitized_file = sanitize_filename(file_name);
+        if self.state.get_transfer_temp_path(&sanitized_user, &sanitized_file).is_none() {
+            let temp_dir = self
+                .state
+                .downloads_base_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("triadchat/downloads")
+                .join(&sanitized_user);
+            let _ = std::fs::create_dir_all(&temp_dir);
+            let unique_id = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+            let temp_name = format!(".{}.tmp_{}", sanitized_file, unique_id);
+            let temp_path = temp_dir.join(temp_name);
+            let _ = std::fs::File::create(&temp_path);
+            self.state.start_transfer(sanitized_user, sanitized_file, temp_path);
+        }
         self.process_user_data(user_name, file_name, chunk);
     }
 

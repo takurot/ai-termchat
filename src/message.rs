@@ -105,6 +105,10 @@ pub enum NetMessage {
     PeerIdentity { public_key: Vec<u8>, signature: Vec<u8>, timestamp: u64 },
     KeyExchange { public_key: Vec<u8>, signature: Vec<u8> },
     Secure(Vec<u8>),
+    TransferOffer { file_name: String, file_size: u64, sender: String },
+    TransferAccept { file_name: String },
+    TransferReject { file_name: String, reason: String },
+    TransferCancel { file_name: String },
 }
 
 pub const MAX_NAME_LEN: usize = 256;
@@ -123,6 +127,8 @@ pub const MAX_AVATAR_LEN: usize = 65536; // 64 KB
 pub const MAX_ROOM_ID_LEN: usize = 256;
 pub const MAX_ROOM_MEMBERS: usize = 256;
 pub const MAX_SKILL_SUMMARY_LEN: usize = 65536; // 64 KB
+pub const MAX_TRANSFER_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
+pub const MAX_TRANSFER_DISPLAY_NAME: &str = "100 MB";
 
 impl TodoItem {
     pub fn validate(&self) -> bool {
@@ -224,6 +230,14 @@ impl NetMessage {
                 public_key.len() == 32 && signature.len() == 64
             }
             NetMessage::Secure(data) => !data.is_empty(), // At minimum, 8B nonce + 16B tag
+            NetMessage::TransferOffer { file_name, file_size: _, sender } => {
+                file_name.len() <= MAX_FILE_NAME_LEN && sender.len() <= MAX_NAME_LEN
+            }
+            NetMessage::TransferAccept { file_name } => file_name.len() <= MAX_FILE_NAME_LEN,
+            NetMessage::TransferReject { file_name, reason: _ } => {
+                file_name.len() <= MAX_FILE_NAME_LEN
+            }
+            NetMessage::TransferCancel { file_name } => file_name.len() <= MAX_FILE_NAME_LEN,
         }
     }
 }

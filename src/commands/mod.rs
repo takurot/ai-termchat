@@ -6,6 +6,7 @@ pub mod room_cmd;
 pub mod send_file;
 pub mod skill_cmd;
 pub mod summary_cmd;
+pub mod transfer_cmd;
 
 use std::collections::HashMap;
 
@@ -56,6 +57,8 @@ pub enum AppCommand {
     Skill { name: String, args: Vec<String> },
     RunProposal(usize),
     Cancel,
+    AcceptTransfer(String),
+    RejectTransfer(String),
     Avatar(AvatarCommandKind),
     ArtList,
     ArtReload,
