@@ -228,16 +228,19 @@ fn overflow_line(hidden_count: usize) -> Option<String> {
 
 fn format_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
+    let mut value = bytes;
     let mut unit_idx = 0;
-    while value >= 1024.0 && unit_idx < UNITS.len() - 1 {
-        value /= 1024.0;
+    while value >= 1024 && unit_idx < UNITS.len() - 1 {
+        value /= 1024;
         unit_idx += 1;
     }
-    if unit_idx == 0 || value >= 10.0 {
-        format!("{:.0} {}", value, UNITS[unit_idx])
+    if unit_idx == 0 || value >= 10 {
+        format!("{} {}", value, UNITS[unit_idx])
     } else {
-        format!("{:.1} {}", value, UNITS[unit_idx])
+        let denominator = 1024u64.pow(unit_idx as u32);
+        let rem = bytes % denominator;
+        let frac = (rem * 10) / denominator;
+        format!("{}.{} {}", value, frac, UNITS[unit_idx])
     }
 }
 
@@ -416,6 +419,24 @@ mod tests {
     #[test]
     fn format_bytes_large_enough_for_integer_unit() {
         assert_eq!(format_bytes(15 * 1024), "15 KB");
+    }
+
+    #[test]
+    fn format_bytes_nearest_kib_boundary() {
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+    }
+
+    #[test]
+    fn format_bytes_kib_decimal_boundary() {
+        assert_eq!(format_bytes(10239), "9.9 KB");
+        assert_eq!(format_bytes(10240), "10 KB");
+    }
+
+    #[test]
+    fn format_bytes_mib_integer() {
+        let mib = 10 * 1024 * 1024_u64;
+        assert_eq!(format_bytes(mib), "10 MB");
     }
 
     // ── receiving section rendering ───────────────────────────────────
