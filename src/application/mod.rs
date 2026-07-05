@@ -68,6 +68,7 @@ pub struct Application<'a> {
     encoder: Encoder,
     runtime: tokio::runtime::Runtime,
     ai_mediator: Option<Arc<AiMediator>>,
+    workspace: PathBuf,
     avatar_manager: AvatarManager,
     art_dict: HashMap<String, String>,
     art_yaml_path: Option<PathBuf>,
@@ -201,6 +202,7 @@ impl<'a> Application<'a> {
             encoder: Encoder::new(),
             runtime,
             ai_mediator,
+            workspace: workspace.to_path_buf(),
             avatar_manager,
             art_dict,
             art_yaml_path,
@@ -903,6 +905,38 @@ impl<'a> Application<'a> {
                     ai_frequency_label(&self.state.ai_frequency)
                 ));
             }
+            AppCommand::SetAiProvider(provider) => {
+                if !self.config.ai.enabled {
+                    self.state.add_system_error_message(
+                        "AI is disabled in config; cannot switch provider.".into(),
+                    );
+                    return;
+                }
+                if self.state.ai_thinking {
+                    self.state.add_system_error_message(
+                        "Cannot switch AI provider while a request is in flight; wait for it to \
+                         finish."
+                            .into(),
+                    );
+                    return;
+                }
+                let mut ai_config = self.config.ai.clone();
+                ai_config.provider = provider;
+                match AiMediator::new(&self.workspace, &ai_config, &self.config.language) {
+                    Ok(mediator) => {
+                        let label = ai_config.provider.label().to_string();
+                        self.state.ai_provider = ai_config.provider;
+                        self.ai_mediator = Some(Arc::new(mediator));
+                        self.state.ai_state = AiState::Idle;
+                        self.state.add_system_info_message(format!("AI provider set to {label}"));
+                    }
+                    Err(error) => {
+                        self.state.add_system_error_message(format!(
+                            "Failed to set AI provider: {error}"
+                        ));
+                    }
+                }
+            }
             AppCommand::RoomCreate { peers, ai_mode } => {
                 if let Some(missing_peer) = peers
                     .iter()
@@ -1416,6 +1450,10 @@ impl<'a> Application<'a> {
 
     pub fn state(&self) -> &State {
         &self.state
+    }
+
+    pub fn set_ai_thinking_for_test(&mut self, thinking: bool) {
+        self.state.ai_thinking = thinking;
     }
 
     pub fn has_secure_session(&self, endpoint: Endpoint) -> bool {
@@ -1981,6 +2019,7 @@ fn help_text() -> String {
                 ("", "  companion  Casual conversational partner"),
                 ("/ai quiet <on|off>", "Mute/unmute AI responses"),
                 ("/ai freq <low|normal|high>", "Adjust AI intervention frequency"),
+                ("/ai provider <provider>", "Switch AI engine (claude, codex, gemini, custom)"),
             ],
         ),
         (

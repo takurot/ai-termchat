@@ -1,4 +1,5 @@
 use crate::commands::{AppCommand, Command, ParsedCommand};
+use crate::config::AiProvider;
 use crate::state::{AiFrequency, AiMode};
 use crate::util::Result;
 
@@ -33,8 +34,16 @@ impl Command for AiCommand {
                     parse_frequency(params.get(1).map(String::as_str).unwrap_or("normal"))?;
                 Ok(ParsedCommand::App(AppCommand::SetAiFrequency(frequency)))
             }
+            "provider" => {
+                let provider = params
+                    .get(1)
+                    .map(String::as_str)
+                    .unwrap_or("claude")
+                    .parse::<AiProvider>()?;
+                Ok(ParsedCommand::App(AppCommand::SetAiProvider(provider)))
+            }
             _ => Err(anyhow::anyhow!(
-                "usage: /ai mode <mode>\n  clerk      - responds to decisions and task markers\n  listener   - silent; never auto-intervenes\n  moderator  - intervenes on ambiguous or contradictory messages\n  operator   - responds to execute, deploy, or run requests\n  companion  - chats actively and replies to direct prompts\nusage: /ai quiet <on|off>\nusage: /ai freq <low|normal|high>"
+                "usage: /ai mode <mode>\n  clerk      - responds to decisions and task markers\n  listener   - silent; never auto-intervenes\n  moderator  - intervenes on ambiguous or contradictory messages\n  operator   - responds to execute, deploy, or run requests\n  companion  - chats actively and replies to direct prompts\nusage: /ai quiet <on|off>\nusage: /ai freq <low|normal|high>\nusage: /ai provider <claude|codex|gemini|custom>"
             )),
         }
     }
@@ -80,5 +89,34 @@ mod tests {
         assert!(error.to_string().contains("listener"));
         assert!(error.to_string().contains("moderator"));
         assert!(error.to_string().contains("operator"));
+    }
+
+    #[test]
+    fn parse_params_provider_returns_provider() {
+        let parsed = AiCommand
+            .parse_params(vec!["provider".into(), "gemini".into()])
+            .expect("gemini is a valid AI provider");
+
+        assert!(matches!(
+            parsed,
+            ParsedCommand::App(AppCommand::SetAiProvider(AiProvider::Gemini))
+        ));
+    }
+
+    #[test]
+    fn parse_params_provider_unknown_returns_error() {
+        assert!(AiCommand.parse_params(vec!["provider".into(), "openai".into()]).is_err());
+    }
+
+    #[test]
+    fn parse_params_provider_defaults_to_claude() {
+        let parsed = AiCommand
+            .parse_params(vec!["provider".into()])
+            .expect("provider with no arg defaults to claude");
+
+        assert!(matches!(
+            parsed,
+            ParsedCommand::App(AppCommand::SetAiProvider(AiProvider::Claude))
+        ));
     }
 }

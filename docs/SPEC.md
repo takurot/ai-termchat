@@ -896,12 +896,15 @@ Layout::horizontal([
 /ai mode <listener|clerk|moderator|operator>
 /ai quiet <on|off>
 /ai freq <low|normal|high>
+/ai provider <claude|codex|gemini|custom>
 
 /summary          直近会話の要約
 /todos            TODO 一覧
 /decisions        決定事項一覧
 /context          会話コンテキスト全体
 ```
+
+`/ai provider` は実行中の AI エンジンを動的に切り替える。`SidecarAdapter` が新しいプロバイダーのコマンド (`which` または `ai.command`) を解決できた時点で `state.ai_provider` と `ai_mediator` を置き換える。解決に失敗した場合は以前のプロバイダーと mediator を維持し、エラーメッセージを表示する。
 
 ### Phase 1 追加コマンド
 

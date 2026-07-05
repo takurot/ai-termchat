@@ -4,8 +4,8 @@ mod common;
 
 use common::{config_with_ai_script, rendered_messages, write_executable_script};
 use triadchat::application::Application;
-use triadchat::config::Config;
-use triadchat::state::{AiMode, MessageType};
+use triadchat::config::{AiProvider, Config};
+use triadchat::state::{AiMode, AiState, MessageType};
 
 #[test]
 fn summary_commands_and_auto_intervention_work_end_to_end() {
@@ -124,6 +124,7 @@ fn help_command_groups_commands_with_descriptions() {
     assert!(rendered.contains("Set avatar (target: self, @ops-ai)"));
     assert!(rendered.contains("Send a file to peers in the room"));
     assert!(rendered.contains("/ai mode <mode>"));
+    assert!(rendered.contains("/ai provider <provider>"));
     assert!(rendered.contains("/room switch <id|name>"));
     assert!(rendered.contains("Switch active room"));
     assert!(rendered.contains("/peer connect <host:port>"));
@@ -147,6 +148,105 @@ fn ai_commands_report_human_readable_feedback() {
 
     assert!(rendered.contains("AI mode set to moderator"));
     assert!(rendered.contains("AI frequency set to low"));
+}
+
+#[test]
+fn ai_provider_command_switches_active_provider() {
+    let dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let config = config_with_ai_script(&script, "takuro");
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Gemini);
+    assert_eq!(app.state().ai_state, AiState::Idle);
+    assert!(!app.state().ai_thinking);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("AI provider set to gemini"));
+}
+
+#[test]
+fn ai_provider_command_refused_while_ai_thinking() {
+    let dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let config = config_with_ai_script(&script, "takuro");
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.set_ai_thinking_for_test(true);
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+
+    // State must be untouched.
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    assert!(app.state().ai_thinking);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("Cannot switch AI provider while a request is in flight"));
+    assert!(!rendered.contains("AI provider set to gemini"));
+}
+
+#[test]
+fn ai_provider_command_refused_when_ai_disabled_in_config() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("AI is disabled in config; cannot switch provider"));
+    assert!(!rendered.contains("AI provider set to gemini"));
+}
+
+#[test]
+fn ai_provider_command_failure_keeps_previous_provider() {
+    // Initial config has a real script, so AiMediator builds on construction.
+    let script_dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(script_dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let mut config = Config::default();
+    config.ai.enabled = true;
+    config.ai.command = Some(script.display().to_string());
+    let mut app = Application::new_for_test(&config).unwrap();
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+
+    // Drop the script dir so the command path no longer resolves. The handler
+    // clones self.config.ai and re-checks command existence inside
+    // SidecarAdapter::new, so the switch deterministically fails here without
+    // depending on what provider binaries happen to be on PATH.
+    drop(script_dir);
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("Failed to set AI provider"));
+    assert!(!rendered.contains("AI provider set to gemini"));
+}
+
+#[test]
+fn ai_provider_command_defaults_to_claude_when_omitted() {
+    let dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let config = config_with_ai_script(&script, "takuro");
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+    assert_eq!(app.state().ai_provider, AiProvider::Gemini);
+
+    app.handle_input_line_for_test("/ai provider").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("AI provider set to claude"));
 }
 
 #[test]
