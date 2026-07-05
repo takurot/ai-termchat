@@ -36,6 +36,8 @@ pub struct SendFile {
     progress_id: Option<usize>,
     encoder: Encoder,
     failed_endpoints: HashSet<Endpoint>,
+    offered: bool,
+    accepted: bool,
 }
 
 impl SendFile {
@@ -61,6 +63,8 @@ impl SendFile {
             progress_id: None,
             encoder: Encoder::new(),
             failed_endpoints: HashSet::new(),
+            offered: false,
+            accepted: false,
         })
     }
 }
@@ -70,6 +74,36 @@ impl Action for SendFile {
         if self.progress_id.is_none() {
             let id = state.add_progress_message(&self.file_name, self.file_size);
             self.progress_id = Some(id);
+        }
+
+        if !self.offered {
+            self.offered = true;
+            let user_name = state.local_user_name().to_string();
+            let offer = NetMessage::TransferOffer {
+                file_name: self.file_name.clone(),
+                file_size: self.file_size,
+                sender: user_name,
+            };
+            let message = self.encoder.encode(offer);
+            let endpoints: Vec<Endpoint> = state
+                .all_user_endpoints()
+                .into_iter()
+                .filter(|e| !self.failed_endpoints.contains(e))
+                .collect();
+            let result = crate::util::send_all(network, &endpoints, message);
+            if result.is_err() {
+                result.report_if_err(state);
+                return Processing::Completed;
+            }
+            return Processing::Partial(Duration::from_millis(50));
+        }
+
+        if !self.accepted {
+            if state.has_accepted_outbound_transfer(&self.file_name) {
+                self.accepted = true;
+            } else {
+                return Processing::Partial(Duration::from_millis(100));
+            }
         }
 
         let mut data = [0; Self::CHUNK_SIZE];

@@ -46,6 +46,13 @@ pub struct ActiveTransferView {
     pub bytes_received: u64,
 }
 
+#[derive(Clone, Debug)]
+pub struct PendingTransferOffer {
+    pub sender: String,
+    pub file_name: String,
+    pub file_size: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AiMode {
@@ -170,6 +177,8 @@ pub struct State {
     trusted_peer_fingerprints: HashSet<String>,
     active_transfers: HashMap<(String, String), ActiveTransfer>,
     downloads_base_dir: Option<PathBuf>,
+    pending_transfer_offer: Option<PendingTransferOffer>,
+    accepted_outbound_transfers: HashSet<String>,
     verified_peer_fingerprints: HashMap<Endpoint, String>,
     signature_replay_cache: HashSet<Vec<u8>>,
     peer_public_keys: HashMap<Endpoint, Vec<u8>>,
@@ -220,6 +229,8 @@ impl Default for State {
             trusted_peer_fingerprints: HashSet::new(),
             active_transfers: HashMap::new(),
             downloads_base_dir: None,
+            pending_transfer_offer: None,
+            accepted_outbound_transfers: HashSet::new(),
             verified_peer_fingerprints: HashMap::new(),
             signature_replay_cache: HashSet::new(),
             peer_public_keys: HashMap::new(),
@@ -658,6 +669,30 @@ impl State {
 
     pub fn remove_transfer(&mut self, user: &str, filename: &str) -> Option<PathBuf> {
         self.active_transfers.remove(&(user.to_string(), filename.to_string())).map(|t| t.temp_path)
+    }
+
+    pub fn set_pending_transfer_offer(&mut self, offer: PendingTransferOffer) {
+        self.pending_transfer_offer = Some(offer);
+    }
+
+    pub fn pending_transfer_offer(&self) -> Option<&PendingTransferOffer> {
+        self.pending_transfer_offer.as_ref()
+    }
+
+    pub fn take_pending_transfer_offer(&mut self) -> Option<PendingTransferOffer> {
+        self.pending_transfer_offer.take()
+    }
+
+    pub fn clear_pending_transfer_offer(&mut self) {
+        self.pending_transfer_offer = None;
+    }
+
+    pub fn mark_outbound_transfer_accepted(&mut self, file_name: &str) {
+        self.accepted_outbound_transfers.insert(file_name.to_string());
+    }
+
+    pub fn has_accepted_outbound_transfer(&self, file_name: &str) -> bool {
+        self.accepted_outbound_transfers.contains(file_name)
     }
 
     /// Adds `bytes` to the per-transfer counter. No-op if no active transfer
