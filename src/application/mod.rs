@@ -903,6 +903,33 @@ impl<'a> Application<'a> {
                     ai_frequency_label(&self.state.ai_frequency)
                 ));
             }
+            AppCommand::SetAiProvider(provider) => {
+                let workspace = match std::env::current_dir() {
+                    Ok(dir) => dir,
+                    Err(error) => {
+                        self.state.add_system_error_message(format!(
+                            "Failed to resolve workspace for AI provider switch: {error}"
+                        ));
+                        return;
+                    }
+                };
+                let mut ai_config = self.config.ai.clone();
+                ai_config.provider = provider;
+                match AiMediator::new(&workspace, &ai_config, &self.config.language) {
+                    Ok(mediator) => {
+                        let label = ai_config.provider.label().to_string();
+                        self.state.ai_provider = ai_config.provider;
+                        self.ai_mediator = Some(Arc::new(mediator));
+                        self.state.ai_state = AiState::Idle;
+                        self.state.add_system_info_message(format!("AI provider set to {label}"));
+                    }
+                    Err(error) => {
+                        self.state.add_system_error_message(format!(
+                            "Failed to set AI provider: {error}"
+                        ));
+                    }
+                }
+            }
             AppCommand::RoomCreate { peers, ai_mode } => {
                 if let Some(missing_peer) = peers
                     .iter()
@@ -1981,6 +2008,7 @@ fn help_text() -> String {
                 ("", "  companion  Casual conversational partner"),
                 ("/ai quiet <on|off>", "Mute/unmute AI responses"),
                 ("/ai freq <low|normal|high>", "Adjust AI intervention frequency"),
+                ("/ai provider <provider>", "Switch AI engine (claude, gemini, codex, custom)"),
             ],
         ),
         (

@@ -10,6 +10,7 @@ pub mod summary_cmd;
 use std::collections::HashMap;
 
 use crate::action::Action;
+use crate::config::AiProvider;
 use crate::state::{AiFrequency, AiMode};
 use crate::util::Result;
 
@@ -42,6 +43,7 @@ pub enum AppCommand {
     SetAiMode(AiMode),
     SetAiQuiet(bool),
     SetAiFrequency(AiFrequency),
+    SetAiProvider(AiProvider),
     RoomCreate { peers: Vec<String>, ai_mode: Option<AiMode> },
     RoomList,
     RoomSwitch(String),

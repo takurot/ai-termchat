@@ -181,6 +181,20 @@ pub enum AiProvider {
     Custom,
 }
 
+impl std::str::FromStr for AiProvider {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s.to_lowercase().as_str() {
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            "gemini" => Ok(Self::Gemini),
+            "custom" => Ok(Self::Custom),
+            other => Err(anyhow::anyhow!("unknown AI provider: {other}")),
+        }
+    }
+}
+
 impl AiProvider {
     pub fn invocation(&self) -> (&'static str, &'static [&'static str]) {
         match self {
@@ -231,6 +245,21 @@ mod tests {
     #[test]
     fn ai_config_defaults_to_claude_provider() {
         assert_eq!(AiConfig::default().provider, AiProvider::Claude);
+    }
+
+    #[test]
+    fn ai_provider_from_str_accepts_all_known_variants() {
+        assert_eq!("claude".parse::<AiProvider>().unwrap(), AiProvider::Claude);
+        assert_eq!("CLAUDE".parse::<AiProvider>().unwrap(), AiProvider::Claude);
+        assert_eq!("codex".parse::<AiProvider>().unwrap(), AiProvider::Codex);
+        assert_eq!("gemini".parse::<AiProvider>().unwrap(), AiProvider::Gemini);
+        assert_eq!("custom".parse::<AiProvider>().unwrap(), AiProvider::Custom);
+    }
+
+    #[test]
+    fn ai_provider_from_str_rejects_unknown() {
+        assert!("openai".parse::<AiProvider>().is_err());
+        assert!("wat".parse::<AiProvider>().is_err());
     }
 }
 

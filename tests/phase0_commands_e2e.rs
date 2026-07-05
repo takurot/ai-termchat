@@ -4,7 +4,7 @@ mod common;
 
 use common::{config_with_ai_script, rendered_messages, write_executable_script};
 use triadchat::application::Application;
-use triadchat::config::Config;
+use triadchat::config::{AiProvider, Config};
 use triadchat::state::{AiMode, MessageType};
 
 #[test]
@@ -124,6 +124,7 @@ fn help_command_groups_commands_with_descriptions() {
     assert!(rendered.contains("Set avatar (target: self, @ops-ai)"));
     assert!(rendered.contains("Send a file to peers in the room"));
     assert!(rendered.contains("/ai mode <mode>"));
+    assert!(rendered.contains("/ai provider <provider>"));
     assert!(rendered.contains("/room switch <id|name>"));
     assert!(rendered.contains("Switch active room"));
     assert!(rendered.contains("/peer connect <host:port>"));
@@ -147,6 +148,61 @@ fn ai_commands_report_human_readable_feedback() {
 
     assert!(rendered.contains("AI mode set to moderator"));
     assert!(rendered.contains("AI frequency set to low"));
+}
+
+#[test]
+fn ai_provider_command_switches_active_provider() {
+    let dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let config = config_with_ai_script(&script, "takuro");
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Gemini);
+    assert!(!app.state().ai_thinking);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("AI provider set to gemini"));
+}
+
+#[test]
+fn ai_provider_command_failure_keeps_previous_provider() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+
+    // `custom` provider without a configured command deterministically fails
+    // inside SidecarAdapter::new, so we can assert the rollback behaviour
+    // without depending on what binaries happen to be on PATH.
+    app.handle_input_line_for_test("/ai provider custom").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("Failed to set AI provider"));
+    assert!(!rendered.contains("AI provider set to custom"));
+}
+
+#[test]
+fn ai_provider_command_defaults_to_claude_when_omitted() {
+    let dir = TempDir::new().unwrap();
+    let script =
+        write_executable_script(dir.path(), "mock-claude.sh", "#!/bin/sh\nprintf 'noop\n'");
+    let config = config_with_ai_script(&script, "takuro");
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.handle_input_line_for_test("/ai provider gemini").unwrap();
+    assert_eq!(app.state().ai_provider, AiProvider::Gemini);
+
+    app.handle_input_line_for_test("/ai provider").unwrap();
+
+    assert_eq!(app.state().ai_provider, AiProvider::Claude);
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("AI provider set to claude"));
 }
 
 #[test]
