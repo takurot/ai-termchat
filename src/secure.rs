@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::{Aead, OsRng};
@@ -11,6 +11,7 @@ pub struct PeerSecureSession {
     pub send_cipher: ChaCha20Poly1305,
     pub recv_cipher: ChaCha20Poly1305,
     send_nonce: u64,
+    seen_nonces: HashSet<u64>,
 }
 
 pub struct PendingKeyExchange {
@@ -35,6 +36,10 @@ impl PeerSecureSession {
 
     pub fn decrypt(&mut self, data: &[u8]) -> Option<Vec<u8>> {
         if data.len() < 8 {
+            return None;
+        }
+        let nonce_raw = u64::from_le_bytes(data[..8].try_into().unwrap());
+        if !self.seen_nonces.insert(nonce_raw) {
             return None;
         }
         let nonce = make_nonce_from_bytes(&data[..8]);
@@ -79,6 +84,7 @@ pub fn complete_key_exchange_as_initiator(
         send_cipher: ChaCha20Poly1305::new(Key::from_slice(&send_key)),
         recv_cipher: ChaCha20Poly1305::new(Key::from_slice(&recv_key)),
         send_nonce: 0,
+        seen_nonces: HashSet::new(),
     })
 }
 
@@ -93,6 +99,7 @@ pub fn complete_key_exchange_as_responder(
         send_cipher: ChaCha20Poly1305::new(Key::from_slice(&recv_key)),
         recv_cipher: ChaCha20Poly1305::new(Key::from_slice(&send_key)),
         send_nonce: 0,
+        seen_nonces: HashSet::new(),
     })
 }
 
@@ -207,5 +214,26 @@ mod tests {
             *last ^= 1;
         }
         assert!(session_b.decrypt(&ct).is_none());
+    }
+
+    #[test]
+    fn replayed_nonce_is_rejected() {
+        let pending_a = generate_key_exchange();
+        let pending_b = generate_key_exchange();
+
+        let a_public_bytes: [u8; 32] = pending_a.public.to_bytes();
+        let b_public_bytes: [u8; 32] = pending_b.public.to_bytes();
+
+        let mut session_a =
+            complete_key_exchange_as_initiator(pending_a.secret, &b_public_bytes).unwrap();
+        let mut session_b =
+            complete_key_exchange_as_responder(pending_b.secret, &a_public_bytes).unwrap();
+
+        let ct = session_a.encrypt(b"hello");
+        let first = session_b.decrypt(&ct);
+        assert!(first.is_some(), "first decrypt should succeed");
+
+        let second = session_b.decrypt(&ct);
+        assert!(second.is_none(), "replayed ciphertext must be rejected");
     }
 }
