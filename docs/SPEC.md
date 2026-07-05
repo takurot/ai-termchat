@@ -321,7 +321,7 @@ pub enum Signal {
   → true → state.ai_thinking = true → TUI に "[ops-ai: thinking...]" 表示
   → tokio::spawn(sidecar.ask(context, prompt))
   → 完了 → node.signals().send(Signal::AiResponse(payload))
-  → process_ai_response() → state.ai_thinking = false → メッセージ追加 → TUI 更新
+   → process_ai_response() → state.ai_thinking = false → メッセージ追加 → TUI     更新
 ```
 
 `ai_thinking = true` の間は同じメッセージに対して再トリガーしない (二重呼び出し防止)。
@@ -882,12 +882,27 @@ Layout::horizontal([
     Constraint::Min(0),      // chat
     Constraint::Length(22),  // AI status (Phase 2)
 ])
+
 ```
+
+ファイル受信中の進捗は ops-ai パネルの右カラムに表示される
+（`ActiveTransferView` が `active_transfers_view()` 経由で描画）。
+プロトコル変更なしで、受信バイト数のみを常に表示する:
+
+```
+Receiving
+↓ 1.4 MB  alice: notes.txt
+↓ 512 KB  bob: photo.png  … +1 more
+```
+
+表示は最大2行 + overflow表示。転送が完了 (`Chunk::End`) またはエラー (`Chunk::Error`) になると消える。
+バイトカウンタは `disconnected_user` によるピア切断時にもクリアされる。
+
+デルタ符号: `format_bytes(u64)` — バイナリ単位 (1024)、整数部が10未満の単位は小数1桁、それ以外は整数表示。
 
 ---
 
 ## 13. コマンド仕様
-
 `CommandManager::COMMAND_PREFIX` を `"?"` → `"/"` に変更。
 
 ### Phase 0 コマンド

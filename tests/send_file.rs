@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use triadchat::application::Application;
 use triadchat::commands::send_file::SendFile;
 use triadchat::config::Config;
+use triadchat::message::Chunk;
 use triadchat::state::{MessageType, SystemMessageType};
 
 fn test_config(user_name: &str, discovery_port: u16) -> Config {
@@ -191,4 +192,72 @@ fn receive_chunk_end_reports_success_message() {
     assert!(rendered.contains("Successfully received file"));
     assert!(rendered.contains("test.txt"));
     assert!(rendered.contains("sender"));
+}
+
+fn tx_bytes(app: &Application, user: &str, filename: &str) -> Option<u64> {
+    app.state()
+        .active_transfers_view()
+        .iter()
+        .find(|v| v.user == user && v.filename == filename)
+        .map(|v| v.bytes_received)
+}
+
+// ── receive-progress (byte counter) integration tests ────────────────
+
+#[test]
+fn chunk_data_accumulates_byte_counter() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Data(vec![42u8; 1024]), "sender");
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), Some(1024));
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Data(vec![7u8; 512]), "sender");
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), Some(1536));
+}
+
+#[test]
+fn chunk_end_clears_byte_counter() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Data(vec![42u8; 1024]), "sender");
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), Some(1024));
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::End, "sender");
+
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), None);
+}
+
+#[test]
+fn chunk_error_clears_byte_counter() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Data(vec![42u8; 1024]), "sender");
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), Some(1024));
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Error, "sender");
+
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), None);
+}
+
+#[test]
+fn disconnected_user_clears_active_transfers() {
+    let mut config = Config::default();
+    config.ai.enabled = false;
+    let mut app = Application::new_for_test(&config).unwrap();
+
+    app.inject_authenticated_peer_for_test("sender", "fp:sender:test");
+    let endpoint = app.state().peer_endpoint_by_name("sender").expect("peer endpoint should exist");
+
+    app.inject_receive_chunk_for_test("test.txt", Chunk::Data(vec![42u8; 1024]), "sender");
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), Some(1024));
+
+    app.disconnect_peer_for_test(endpoint);
+
+    assert_eq!(tx_bytes(&app, "sender", "test.txt"), None);
 }
