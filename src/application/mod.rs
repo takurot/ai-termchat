@@ -1517,14 +1517,16 @@ impl<'a> Application<'a> {
 
         match chunk {
             Chunk::Error => {
-                if let Some(temp_path) = self.state.remove_transfer(&sanitized_user, file_name) {
+                if let Some(temp_path) =
+                    self.state.remove_transfer(&sanitized_user, &sanitized_file)
+                {
                     let _ = std::fs::remove_file(temp_path);
                 }
                 format!("'{}' had an error while sending '{}'", user_name, file_name)
                     .report_err(&mut self.state);
             }
             Chunk::End => {
-                let temp_path = self.state.remove_transfer(&sanitized_user, file_name);
+                let temp_path = self.state.remove_transfer(&sanitized_user, &sanitized_file);
                 let data_dir = self
                     .state
                     .downloads_base_dir()
@@ -1573,7 +1575,7 @@ impl<'a> Application<'a> {
             Chunk::Data(data) => {
                 let mut try_write = || -> Result<()> {
                     let temp_path = if let Some(path) =
-                        self.state.get_transfer_temp_path(&sanitized_user, file_name)
+                        self.state.get_transfer_temp_path(&sanitized_user, &sanitized_file)
                     {
                         path.clone()
                     } else {
@@ -1597,13 +1599,18 @@ impl<'a> Application<'a> {
 
                         self.state.start_transfer(
                             sanitized_user.clone(),
-                            file_name.to_string(),
+                            sanitized_file.clone(),
                             temp_path.clone(),
                         );
                         temp_path
                     };
 
                     std::fs::OpenOptions::new().append(true).open(temp_path)?.write_all(&data)?;
+                    self.state.record_transfer_bytes(
+                        &sanitized_user,
+                        &sanitized_file,
+                        data.len() as u64,
+                    );
                     Ok(())
                 };
 
@@ -1619,6 +1626,10 @@ impl<'a> Application<'a> {
         user_name: &str,
     ) {
         self.process_user_data(user_name, file_name, chunk);
+    }
+
+    pub fn disconnect_peer_for_test(&mut self, endpoint: Endpoint) {
+        self.state.disconnected_user(endpoint);
     }
 
     pub fn connect_raw_for_test(&mut self, server_addr: SocketAddr) -> Result<Endpoint> {

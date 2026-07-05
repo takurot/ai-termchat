@@ -31,6 +31,21 @@ pub enum ProgressState {
     Completed,
 }
 
+/// Active inbound file transfer: temp path on disk + bytes received so far.
+#[derive(Clone, Debug)]
+pub struct ActiveTransfer {
+    pub temp_path: PathBuf,
+    pub bytes_received: u64,
+}
+
+/// Read-only view of an active inbound transfer, used by the UI renderer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActiveTransferView {
+    pub user: String,
+    pub filename: String,
+    pub bytes_received: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AiMode {
@@ -153,7 +168,7 @@ pub struct State {
     transcript_base_dir: Option<PathBuf>,
     transcript_writer: Option<(String, TranscriptWriter)>,
     trusted_peer_fingerprints: HashSet<String>,
-    active_transfers: HashMap<(String, String), PathBuf>,
+    active_transfers: HashMap<(String, String), ActiveTransfer>,
     downloads_base_dir: Option<PathBuf>,
     verified_peer_fingerprints: HashMap<Endpoint, String>,
     signature_replay_cache: HashSet<Vec<u8>>,
@@ -621,8 +636,8 @@ impl State {
             let active_keys: Vec<_> =
                 self.active_transfers.keys().filter(|(u, _)| u == &user).cloned().collect();
             for key in active_keys {
-                if let Some(temp_path) = self.active_transfers.remove(&key) {
-                    let _ = std::fs::remove_file(temp_path);
+                if let Some(transfer) = self.active_transfers.remove(&key) {
+                    let _ = std::fs::remove_file(transfer.temp_path);
                 }
             }
 
@@ -633,15 +648,50 @@ impl State {
     }
 
     pub fn start_transfer(&mut self, user: String, filename: String, temp_path: PathBuf) {
-        self.active_transfers.insert((user, filename), temp_path);
+        self.active_transfers
+            .insert((user, filename), ActiveTransfer { temp_path, bytes_received: 0 });
     }
 
     pub fn get_transfer_temp_path(&self, user: &str, filename: &str) -> Option<&PathBuf> {
-        self.active_transfers.get(&(user.to_string(), filename.to_string()))
+        self.active_transfers.get(&(user.to_string(), filename.to_string())).map(|t| &t.temp_path)
     }
 
     pub fn remove_transfer(&mut self, user: &str, filename: &str) -> Option<PathBuf> {
-        self.active_transfers.remove(&(user.to_string(), filename.to_string()))
+        self.active_transfers.remove(&(user.to_string(), filename.to_string())).map(|t| t.temp_path)
+    }
+
+    /// Adds `bytes` to the per-transfer counter. No-op if no active transfer
+    /// matches `(user, filename)` so a stray late chunk cannot resurrect a
+    /// finalized entry.
+    pub fn record_transfer_bytes(&mut self, user: &str, filename: &str, bytes: u64) {
+        if let Some(transfer) =
+            self.active_transfers.get_mut(&(user.to_string(), filename.to_string()))
+        {
+            transfer.bytes_received = transfer.bytes_received.saturating_add(bytes);
+        }
+    }
+
+    /// Snapshot of active inbound transfers, sorted by `(user, filename)` for
+    /// deterministic UI rendering and tests.
+    pub fn active_transfers_view(&self) -> Vec<ActiveTransferView> {
+        let mut views: Vec<ActiveTransferView> = self
+            .active_transfers
+            .iter()
+            .map(|((user, filename), transfer)| ActiveTransferView {
+                user: user.clone(),
+                filename: filename.clone(),
+                bytes_received: transfer.bytes_received,
+            })
+            .collect();
+        views.sort_by(|a, b| a.user.cmp(&b.user).then_with(|| a.filename.cmp(&b.filename)));
+        views
+    }
+
+    #[cfg(test)]
+    pub fn transfer_bytes_received(&self, user: &str, filename: &str) -> Option<u64> {
+        self.active_transfers
+            .get(&(user.to_string(), filename.to_string()))
+            .map(|t| t.bytes_received)
     }
 
     pub fn record_peer(&mut self, endpoint: Endpoint, peer: PeerInfo) {
@@ -1337,5 +1387,81 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], ("bob".into(), "neko".into()));
         assert_eq!(result[1], ("charlie".into(), "claude".into()));
+    }
+
+    // --- active transfer byte tracking ---
+
+    #[test]
+    fn start_transfer_initializes_zero_bytes() {
+        let mut s = make_state();
+        s.start_transfer(
+            "alice".into(),
+            "notes.txt".into(),
+            PathBuf::from("/tmp/triadchat-test-notes.txt"),
+        );
+
+        assert_eq!(s.transfer_bytes_received("alice", "notes.txt"), Some(0));
+    }
+
+    #[test]
+    fn record_transfer_bytes_accumulates() {
+        let mut s = make_state();
+        s.start_transfer(
+            "alice".into(),
+            "notes.txt".into(),
+            PathBuf::from("/tmp/triadchat-test-notes.txt"),
+        );
+        s.record_transfer_bytes("alice", "notes.txt", 1024);
+        s.record_transfer_bytes("alice", "notes.txt", 1024);
+
+        assert_eq!(s.transfer_bytes_received("alice", "notes.txt"), Some(2048));
+    }
+
+    #[test]
+    fn record_transfer_bytes_noop_when_no_active_transfer() {
+        let mut s = make_state();
+        s.record_transfer_bytes("alice", "ghost.txt", 1024);
+
+        assert_eq!(s.transfer_bytes_received("alice", "ghost.txt"), None);
+        assert!(s.active_transfers_view().is_empty());
+    }
+
+    #[test]
+    fn remove_transfer_clears_counter() {
+        let mut s = make_state();
+        s.start_transfer(
+            "alice".into(),
+            "notes.txt".into(),
+            PathBuf::from("/tmp/triadchat-test-notes.txt"),
+        );
+        s.record_transfer_bytes("alice", "notes.txt", 1024);
+        let removed = s.remove_transfer("alice", "notes.txt");
+        assert!(removed.is_some());
+
+        assert_eq!(s.transfer_bytes_received("alice", "notes.txt"), None);
+        assert!(s.active_transfers_view().is_empty());
+    }
+
+    #[test]
+    fn active_transfers_view_is_sorted_by_user_then_filename() {
+        let mut s = make_state();
+        s.start_transfer("zoe".into(), "b.txt".into(), PathBuf::from("/tmp/z-b"));
+        s.start_transfer("alice".into(), "y.txt".into(), PathBuf::from("/tmp/a-y"));
+        s.start_transfer("alice".into(), "x.txt".into(), PathBuf::from("/tmp/a-x"));
+        s.record_transfer_bytes("alice", "x.txt", 512);
+        s.record_transfer_bytes("zoe", "b.txt", 2048);
+
+        let view = s.active_transfers_view();
+
+        assert_eq!(view.len(), 3);
+        assert_eq!(view[0].user, "alice");
+        assert_eq!(view[0].filename, "x.txt");
+        assert_eq!(view[0].bytes_received, 512);
+        assert_eq!(view[1].user, "alice");
+        assert_eq!(view[1].filename, "y.txt");
+        assert_eq!(view[1].bytes_received, 0);
+        assert_eq!(view[2].user, "zoe");
+        assert_eq!(view[2].filename, "b.txt");
+        assert_eq!(view[2].bytes_received, 2048);
     }
 }

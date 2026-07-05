@@ -7,7 +7,7 @@ use ratatui::Frame;
 use crate::avatar::loader::AvatarManager;
 use crate::avatar::AvatarState;
 use crate::config::AiProvider;
-use crate::state::{AiMode, AiState, SkillProposal, State};
+use crate::state::{ActiveTransferView, AiMode, AiState, SkillProposal, State};
 use crate::ui::layout::truncate;
 
 /// Draws the ops-ai status panel below chat.
@@ -61,8 +61,29 @@ pub fn draw_status_panel(
 
     frame.render_widget(Paragraph::new(left_lines), left_chunk);
 
-    // Right column: Proposals and TODOs
+    // Right column: Receiving transfers, Proposals, TODOs
     let mut right_lines = Vec::new();
+
+    let transfers = state.active_transfers_view();
+    if !transfers.is_empty() {
+        right_lines.push(Line::from(vec![Span::styled(
+            "Receiving",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )]));
+
+        let total_h = right_chunk.height as usize;
+        let available = total_h.saturating_sub(right_lines.len());
+        let show = available.saturating_sub(1).min(2);
+
+        for t in transfers.iter().take(show) {
+            right_lines.push(receiving_line(t, right_chunk.width));
+        }
+        if let Some(overflow) = overflow_line(transfers.len().saturating_sub(show)) {
+            right_lines
+                .push(Line::from(Span::styled(overflow, Style::default().fg(Color::DarkGray))));
+        }
+    }
+
     let proposals = state.skill_proposals();
     if !proposals.is_empty() {
         right_lines.push(Line::from(vec![
@@ -205,6 +226,35 @@ fn overflow_line(hidden_count: usize) -> Option<String> {
     (hidden_count > 0).then(|| format!("  … +{hidden_count} more"))
 }
 
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit_idx = 0;
+    while value >= 1024.0 && unit_idx < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_idx += 1;
+    }
+    if unit_idx == 0 || value >= 10.0 {
+        format!("{:.0} {}", value, UNITS[unit_idx])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit_idx])
+    }
+}
+
+fn receiving_line(t: &ActiveTransferView, width: u16) -> Line<'static> {
+    let text = format!(
+        "↓ {}  {}: {}",
+        format_bytes(t.bytes_received),
+        t.user,
+        truncate(&t.filename, receiving_filename_limit(width))
+    );
+    Line::from(Span::styled(text, Style::default().fg(Color::LightCyan)))
+}
+
+fn receiving_filename_limit(width: u16) -> usize {
+    width.saturating_sub(24).clamp(8, 40) as usize
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::backend::TestBackend;
@@ -333,5 +383,206 @@ mod tests {
             .join("\n");
 
         assert!(rendered.contains("… +2 more"));
+    }
+
+    // ── format_bytes ──────────────────────────────────────────────────
+
+    #[test]
+    fn format_bytes_zero() {
+        assert_eq!(format_bytes(0), "0 B");
+    }
+
+    #[test]
+    fn format_bytes_bytes() {
+        assert_eq!(format_bytes(512), "512 B");
+    }
+
+    #[test]
+    fn format_bytes_kib_decimal() {
+        assert_eq!(format_bytes(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn format_bytes_mib_fractional() {
+        assert_eq!(format_bytes(1_500_000), "1.4 MB");
+    }
+
+    #[test]
+    fn format_bytes_gib_integer() {
+        let gib = 10 * 1024 * 1024 * 1024_u64;
+        assert_eq!(format_bytes(gib), "10 GB");
+    }
+
+    #[test]
+    fn format_bytes_large_enough_for_integer_unit() {
+        assert_eq!(format_bytes(15 * 1024), "15 KB");
+    }
+
+    // ── receiving section rendering ───────────────────────────────────
+
+    fn state_with_one_transfer() -> State {
+        let mut s = State::default();
+        s.avatar_size = crate::avatar::AvatarSize::Compact;
+        s.start_transfer(
+            "alice".into(),
+            "notes.txt".into(),
+            std::path::PathBuf::from("/tmp/test-transfer"),
+        );
+        s.record_transfer_bytes("alice", "notes.txt", 1_500_000);
+        s
+    }
+
+    #[test]
+    fn rendered_panel_shows_active_transfer() {
+        let state = state_with_one_transfer();
+
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.size();
+                draw_status_panel(frame, &state, area, &avatar_manager);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..10)
+            .map(|y| {
+                (0..80)
+                    .map(|x| buffer.get(x, y).symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Receiving"));
+        assert!(rendered.contains("1.4 MB"));
+        assert!(rendered.contains("alice: notes.txt"));
+    }
+
+    #[test]
+    fn rendered_panel_omits_receiving_section_when_idle() {
+        let mut state = State::default();
+        state.avatar_size = crate::avatar::AvatarSize::Compact;
+
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.size();
+                draw_status_panel(frame, &state, area, &avatar_manager);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..10)
+            .map(|y| {
+                (0..80)
+                    .map(|x| buffer.get(x, y).symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(!rendered.contains("Receiving"));
+    }
+
+    #[test]
+    fn rendered_panel_shows_transfer_overflow() {
+        let mut state = State::default();
+        state.avatar_size = crate::avatar::AvatarSize::Compact;
+        state.start_transfer("a".into(), "x.txt".into(), std::path::PathBuf::from("/tmp/t1"));
+        state.start_transfer("b".into(), "y.txt".into(), std::path::PathBuf::from("/tmp/t2"));
+        state.start_transfer("c".into(), "z.txt".into(), std::path::PathBuf::from("/tmp/t3"));
+
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.size();
+                draw_status_panel(frame, &state, area, &avatar_manager);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..10)
+            .map(|y| {
+                (0..80)
+                    .map(|x| buffer.get(x, y).symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("… +1 more"));
+    }
+
+    #[test]
+    fn rendered_panel_budgets_receiving_proposals_and_todos() {
+        let mut state = State::default();
+        state.avatar_size = crate::avatar::AvatarSize::Compact;
+        state.ai_mode = AiMode::Clerk;
+        state.ai_provider = AiProvider::Claude;
+        state.ai_state = AiState::Idle;
+        state.start_transfer(
+            "alice".into(),
+            "notes.txt".into(),
+            std::path::PathBuf::from("/tmp/t1"),
+        );
+        state.record_transfer_bytes("alice", "notes.txt", 1024);
+        state.set_skill_proposals(&["email_processor".into()], Some("alice".into()), true);
+        state.last_structured_output = Some(StructuredOutput {
+            todos: vec![TodoItem {
+                text: "Implement auth module".into(),
+                assignee: Some("takuro".into()),
+            }],
+            decisions: Vec::new(),
+            skill_suggestions: Vec::new(),
+            raw_text: None,
+        });
+
+        let avatar_dir = std::path::PathBuf::from("/tmp/triadchat-test-avatars");
+        let avatar_manager = AvatarManager::new(avatar_dir);
+
+        let backend = TestBackend::new(80, 14);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.size();
+                draw_status_panel(frame, &state, area, &avatar_manager);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..14)
+            .map(|y| {
+                (0..80)
+                    .map(|x| buffer.get(x, y).symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("Receiving"));
+        assert!(rendered.contains("1.0 KB"));
+        assert!(rendered.contains("Proposals"));
+        assert!(rendered.contains("Implement auth module"));
     }
 }
