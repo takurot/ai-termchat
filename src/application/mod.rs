@@ -1460,6 +1460,17 @@ impl<'a> Application<'a> {
         self.secure_state.has_session(endpoint)
     }
 
+    pub fn build_secure_frame_for_test(
+        &mut self,
+        endpoint: Endpoint,
+        inner: NetMessage,
+    ) -> Option<NetMessage> {
+        let serialized = bincode::serde::encode_to_vec(&inner, bincode::config::legacy()).ok()?;
+        let session = self.secure_state.session_mut(endpoint)?;
+        let encrypted = session.encrypt(&serialized);
+        Some(NetMessage::Secure(encrypted))
+    }
+
     pub fn handle_input_line_for_test(&mut self, input: &str) -> Result<()> {
         self.process_input_line(input.to_string())
     }

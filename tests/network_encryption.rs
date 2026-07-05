@@ -180,3 +180,45 @@ fn plaintext_works_without_key_exchange_for_backward_compat() {
     assert_contains(&rendered, "plaintext hello");
     assert_contains(&rendered, "peer ready: tanaka");
 }
+
+#[test]
+fn replayed_secure_frame_is_rejected() {
+    let discovery_port = 30000 + (rand::random::<u16>() % 10000);
+    let alice_config = test_config("alice", discovery_port);
+    let bob_config = test_config("bob", discovery_port + 1);
+    let mut alice = Application::new_for_test(&alice_config).unwrap();
+    let mut bob = Application::new_for_test(&bob_config).unwrap();
+
+    alice.start_network_for_test().unwrap();
+    bob.start_network_for_test().unwrap();
+    alice.connect_peer_for_test(bob.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.state().peer_is_ready("bob") && right.state().peer_is_ready("alice")
+    });
+
+    let alice_endpoint = bob.state().peer_endpoint_by_name("alice").unwrap();
+    let bob_endpoint = alice.state().peer_endpoint_by_name("bob").unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.has_secure_session(bob_endpoint) && right.has_secure_session(alice_endpoint)
+    });
+
+    let inner = triadchat::message::NetMessage::UserMessage("replay test".to_string());
+    let secure_frame =
+        alice.build_secure_frame_for_test(bob_endpoint, inner).expect("should build secure frame");
+
+    bob.inject_network_message_for_test(alice_endpoint, secure_frame.clone());
+    let after_first = rendered_messages(bob.state());
+    assert_contains(&after_first, "replay test");
+
+    let first_count = after_first.matches("replay test").count();
+
+    bob.inject_network_message_for_test(alice_endpoint, secure_frame);
+    let after_replay = rendered_messages(bob.state());
+    assert_eq!(
+        after_replay.matches("replay test").count(),
+        first_count,
+        "replayed secure frame must not produce a duplicate message"
+    );
+}
