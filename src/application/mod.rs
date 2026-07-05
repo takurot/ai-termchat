@@ -78,6 +78,7 @@ pub struct Application<'a> {
     discovery_retries_remaining: usize,
     signing_key: ed25519_dalek::SigningKey,
     secure_state: SecureState,
+    processing_from_secure: bool,
 }
 
 impl<'a> Application<'a> {
@@ -212,6 +213,7 @@ impl<'a> Application<'a> {
             discovery_retries_remaining: 0,
             signing_key,
             secure_state: SecureState::default(),
+            processing_from_secure: false,
         })
     }
 
@@ -368,7 +370,11 @@ impl<'a> Application<'a> {
             }
             NetMessage::UserData(file_name, chunk) => {
                 if let Some(user) = self.state.user_name(endpoint).cloned() {
-                    if !self.accepts_authenticated_peer_message(endpoint, "file transfer") {
+                    if !self.accepts_authenticated_peer_message_inner(
+                        endpoint,
+                        "file transfer",
+                        false,
+                    ) {
                         return;
                     }
                     self.process_user_data(&user, &file_name, chunk);
@@ -585,10 +591,29 @@ impl<'a> Application<'a> {
         endpoint: Endpoint,
         message_kind: &str,
     ) -> bool {
+        self.accepts_authenticated_peer_message_inner(endpoint, message_kind, true)
+    }
+
+    fn accepts_authenticated_peer_message_inner(
+        &mut self,
+        endpoint: Endpoint,
+        message_kind: &str,
+        require_secure: bool,
+    ) -> bool {
         let Some(user) = self.state.user_name(endpoint).map(|user| user.to_string()) else {
             return false;
         };
         if self.state.is_peer_authenticated_endpoint(endpoint) {
+            if require_secure
+                && self.secure_state.has_session(endpoint)
+                && !self.processing_from_secure
+            {
+                self.state.add_system_warn_message(format!(
+                    "rejected plaintext {} from authenticated peer {} (secure session exists)",
+                    message_kind, user
+                ));
+                return false;
+            }
             return true;
         }
         self.state.add_system_warn_message(format!(
@@ -711,7 +736,9 @@ impl<'a> Application<'a> {
             return;
         }
 
+        self.processing_from_secure = true;
         self.process_network_message(endpoint, inner_msg);
+        self.processing_from_secure = false;
     }
 
     fn send_secure_to_peer(&mut self, endpoint: Endpoint, message: NetMessage) {

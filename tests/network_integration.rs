@@ -280,7 +280,8 @@ description: Review auth
         let _ = tanaka.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }
 
-    let endpoint = tanaka.state().all_user_endpoints()[0];
+    let tanaka_endpoint_for_takuro = takuro.state().peer_endpoint_by_name("tanaka").unwrap();
+    let takuro_endpoint_for_tanaka = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
         text: "review-auth suggested".into(),
         intent: AiIntent::SkillSuggest,
@@ -291,14 +292,10 @@ description: Review auth
             raw_text: None,
         }),
     };
-    let mut encoded = Vec::new();
-    bincode::serde::encode_into_std_write(
-        NetMessage::AiMessage(payload),
-        &mut encoded,
-        bincode::config::legacy(),
-    )
-    .unwrap();
-    tanaka.node_handler().network().send(endpoint, &encoded);
+    let secure_frame = tanaka
+        .build_secure_frame_for_test(takuro_endpoint_for_tanaka, NetMessage::AiMessage(payload))
+        .unwrap();
+    takuro.inject_network_message_for_test(tanaka_endpoint_for_takuro, secure_frame);
     for _ in 0..5 {
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }
@@ -368,7 +365,8 @@ description: Review auth
     }
 
     let fingerprint = takuro.state().peer_fingerprint_by_name("tanaka").unwrap();
-    let endpoint = tanaka.state().all_user_endpoints()[0];
+    let tanaka_endpoint_for_takuro = takuro.state().peer_endpoint_by_name("tanaka").unwrap();
+    let takuro_endpoint_for_tanaka = tanaka.state().all_user_endpoints()[0];
     let payload = AiPayload {
         text: "review-auth suggested".into(),
         intent: AiIntent::SkillSuggest,
@@ -379,14 +377,10 @@ description: Review auth
             raw_text: None,
         }),
     };
-    let mut encoded = Vec::new();
-    bincode::serde::encode_into_std_write(
-        NetMessage::AiMessage(payload),
-        &mut encoded,
-        bincode::config::legacy(),
-    )
-    .unwrap();
-    tanaka.node_handler().network().send(endpoint, &encoded);
+    let secure_frame = tanaka
+        .build_secure_frame_for_test(takuro_endpoint_for_tanaka, NetMessage::AiMessage(payload))
+        .unwrap();
+    takuro.inject_network_message_for_test(tanaka_endpoint_for_takuro, secure_frame);
     for _ in 0..5 {
         let _ = takuro.process_next_event_with_timeout_for_test(Duration::from_millis(50));
     }

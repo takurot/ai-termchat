@@ -222,3 +222,39 @@ fn replayed_secure_frame_is_rejected() {
         "replayed secure frame must not produce a duplicate message"
     );
 }
+
+#[test]
+fn plaintext_rejected_after_secure_session_established() {
+    let discovery_port = 50000 + (rand::random::<u16>() % 10000);
+    let alice_config = test_config("alice", discovery_port);
+    let bob_config = test_config("bob", discovery_port + 1);
+    let mut alice = Application::new_for_test(&alice_config).unwrap();
+    let mut bob = Application::new_for_test(&bob_config).unwrap();
+
+    alice.start_network_for_test().unwrap();
+    bob.start_network_for_test().unwrap();
+    alice.connect_peer_for_test(bob.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.state().peer_is_ready("bob") && right.state().peer_is_ready("alice")
+    });
+
+    let alice_endpoint = bob.state().peer_endpoint_by_name("alice").unwrap();
+    let bob_endpoint = alice.state().peer_endpoint_by_name("bob").unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.has_secure_session(bob_endpoint) && right.has_secure_session(alice_endpoint)
+    });
+
+    bob.inject_network_message_for_test(
+        alice_endpoint,
+        triadchat::message::NetMessage::UserMessage("plaintext attack".to_string()),
+    );
+
+    let after = rendered_messages(bob.state());
+    assert!(
+        !after.contains("plaintext attack"),
+        "plaintext message from authenticated peer with secure session must be rejected"
+    );
+    assert!(after.contains("rejected plaintext"), "should log rejection reason; got:\n{}", after);
+}
