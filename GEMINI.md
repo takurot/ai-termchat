@@ -34,7 +34,7 @@ Config file is auto-created at `~/.config/triadchat/config.toml` on first run.
 
 **triadchat** is a terminal LAN chat application with an embedded AI clerk. It is a Rust binary built on:
 - `message-io` — UDP multicast peer discovery + TCP data transport
-- `tui-rs` + crossterm — terminal UI
+- `ratatui` + crossterm — terminal UI
 - Claude Code (`claude -p`) — AI sidecar subprocess
 
 ### Module layout
@@ -49,8 +49,14 @@ Config file is auto-created at `~/.config/triadchat/config.toml` on first run.
 | `src/skill/` | Skill registry and executor; runs `.claude/skills/<name>` via sidecar |
 | `src/ui/` | TUI layout panels: messages, peers, room list, status |
 | `src/avatar/` | Avatar rendering; optional FFI plugin loading (`avatar-ffi` feature) |
+| `src/secure.rs` | Transport security: X25519 key exchange + ChaCha20Poly1305 framing for `NetMessage::Secure` |
 | `src/config.rs` | TOML config struct; auto-created at `~/.config/triadchat/config.toml` |
-| `src/message.rs` | Shared wire types (serde): `AiPayload`, `PeerInfo`, `StructuredOutput`, IDs |
+| `src/message.rs` | Shared wire types (serde): `NetMessage`, `AiPayload`, `PeerInfo`, `StructuredOutput`, IDs |
+| `src/encoder.rs` | bincode encode/decode for wire framing (termchat-inherited) |
+| `src/renderer.rs` | `Renderer` draw orchestration (termchat-inherited) |
+| `src/action.rs` | `Action` trait for termchat-style actions (termchat-inherited) |
+| `src/terminal_events.rs` | crossterm input event polling (termchat-inherited) |
+| `src/util.rs` | Shared utilities and error type (termchat-inherited) |
 | `tests/` | Integration tests (each `.rs` file is a separate test binary) |
 
 ### Data flow

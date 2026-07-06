@@ -1,0 +1,39 @@
+name: Bug report
+description: Report something that is broken or behaves incorrectly
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, config, or transcript that triggers the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, stack traces, or file:line references.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Proposed acceptance criteria
+      description: A regression test that reproduces this bug, then passes once fixed.

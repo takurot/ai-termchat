@@ -1,9 +1,10 @@
 [package]
 name = "triadchat"
 version = "0.1.2"
-authors = ["lemunozm <lemunozm@gmail.com>"]
+authors = ["lemunozm <lemunozm@gmail.com>", "takurot <takurot@users.noreply.github.com>"]
 description = "Terminal chat with a built-in AI clerk"
 edition = "2021"
+rust-version = "1.82"
 readme = "README.md"
 license = "Apache-2.0"
 homepage = "https://github.com/takurot/ai-termchat"
@@ -12,7 +13,7 @@ keywords = ["network", "chat", "lan", "terminal", "ai"]
 categories = ["command-line-utilities", "command-line-interface"]
 
 [badges]
-maintenance = { status = "passively-maintenance" }
+maintenance = { status = "passively-maintained" }
 
 [dependencies]
 message-io = { default-features = false, features = ["udp", "tcp"], version = "0.14" }
