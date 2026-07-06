@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an enhancement or new capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: The problem you are trying to solve and the proposed change.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Priority
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / context
+      description: Why is this valuable? Who does it help?
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Design sketch, affected files, or alternatives considered.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know this is done? Prefer verifiable criteria.

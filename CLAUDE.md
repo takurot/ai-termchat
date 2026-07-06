@@ -49,7 +49,7 @@ Config file is written automatically on first run to `~/.config/triadchat/config
 
 ## Architecture
 
-**triadchat** is a terminal LAN chat app with an embedded AI clerk. It is a Rust binary built on `message-io` (networking), `tui-rs` + crossterm (TUI), and Claude Code (`claude -p`) as a sidecar AI process.
+**triadchat** is a terminal LAN chat app with an embedded AI clerk. It is a Rust binary built on `message-io` (networking), `ratatui` + crossterm (TUI), and Claude Code (`claude -p`) as a sidecar AI process.
 
 ### Module layout
 
@@ -63,8 +63,14 @@ Config file is written automatically on first run to `~/.config/triadchat/config
 | `src/skill/` | Skill registry and executor; runs `.claude/skills/<name>` via sidecar |
 | `src/ui/` | TUI layout panels: messages, peers, room list, status |
 | `src/avatar/` | Avatar rendering; optional FFI plugin loading (`avatar-ffi` feature) |
+| `src/secure.rs` | Transport security: X25519 key exchange + ChaCha20Poly1305 framing for `NetMessage::Secure` |
 | `src/config.rs` | TOML config struct; auto-created at `~/.config/triadchat/config.toml` |
-| `src/message.rs` | Shared wire types (serde): `AiPayload`, `PeerInfo`, `StructuredOutput`, IDs |
+| `src/message.rs` | Shared wire types (serde): `NetMessage`, `AiPayload`, `PeerInfo`, `StructuredOutput`, IDs |
+| `src/encoder.rs` | bincode encode/decode for wire framing (termchat-inherited) |
+| `src/renderer.rs` | `Renderer` draw orchestration (termchat-inherited) |
+| `src/action.rs` | `Action` trait for termchat-style actions (termchat-inherited) |
+| `src/terminal_events.rs` | crossterm input event polling (termchat-inherited) |
+| `src/util.rs` | Shared utilities and error type (termchat-inherited) |
 | `tests/` | Integration tests (each `.rs` file is a separate test binary) |
 
 ### Data flow
@@ -97,7 +103,7 @@ The AI runs as a subprocess (`claude -p <prompt>`). `SidecarAdapter` manages the
 
 ### Networking
 
-Peer discovery via UDP multicast (`238.255.0.1:5877`); data transport over TCP (random port by default). `message-io` handles both. Phase 1 adds explicit Room negotiation messages (`src/net_message_phase1.rs`).
+Peer discovery via UDP multicast (`238.255.0.1:5877`); data transport over TCP (random port by default). `message-io` handles both. Room negotiation and Phase 1 wire types are exercised in `tests/net_message_phase1.rs`. After peer identity verification, TCP payloads upgrade to `NetMessage::Secure` (ChaCha20Poly1305) via `src/secure.rs`.
 
 ### Input history
 

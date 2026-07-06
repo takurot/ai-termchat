@@ -9,6 +9,8 @@
 版: v0.1
 仮称: triadchat
 
+> **⚠️ 歴史文書:** これは初期構想ドキュメント（v0.1）です。現在の実装の真実は `docs/SPEC.md` を、設定の正は `src/config.rs`（および本ファイル §12）を参照してください。本ファイル内の技術選択の記述（例: `tui-rs`）は構想時点のもので、実装では `ratatui` に移行済みです。
+
 # 1. 目的
 
 同一ネットワーク内で、軽量な CLI/TUI ベースのチャットを提供する。
@@ -769,29 +771,34 @@ Claude Code では project-level の skills は `.claude/skills/.../SKILL.md`、
 
 # 12. 設定例
 
-```toml
-[network]
-discovery_addr = "239.0.0.1:5000"
-tcp_port = 37070
+> 現在の正味の設定形状は `src/config.rs` の `Config` 構造体が真。以下は実装に合わせた例（`[network]`/`[ui]`/`[claude_code]` セクションは存在しない）。
 
-[ui]
-theme = "dark"
-avatar_mode = "normal"
+```toml
+# フラットキー (CLI フラグで上書き可能)
+discovery_addr   = "238.255.0.1:5877"   # termchat 由来のデフォルト mcast
+tcp_server_port  = 0                    # 0 = ランダム
+user_name        = "takuro"
+terminal_bell    = true
+
+[language]
+ai_output = "ja"   # ja | en | zh | ko
+ui        = "ja"   # ja | en
 
 [ai]
-default_mode = "clerk"
-intervention = "normal"
-provider = "sidecar"
-
-[claude_code]
-enabled = true
-workspace = "/Volumes/Storage/src/project-a"
-transport = "cli"
-allow_auto_safe_skills = true
+enabled      = true
+provider     = "claude"   # claude | codex | gemini | custom
+# command    = "/path/to/claude"
+timeout_secs = 30
 
 [security]
-default_permission = "confirm-required"
-trusted_peers = ["takuro-mac", "tanaka-laptop"]
+default_permission = "confirm-required"   # confirm-required | trusted-auto-safe | deny-remote-exec
+trusted_peers      = ["takuro-mac", "tanaka-laptop"]
+
+[user]
+avatar    = "human_default"
+ai_avatar = "ai_default"
+
+# [theme] は初回起動時に自動生成される Color 定義一式。
 ```
 
 # 13. MVP 範囲

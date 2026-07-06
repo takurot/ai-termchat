@@ -58,7 +58,7 @@ triadchat/
     ├── lib.rs                   # pub re-exports
     ├── config.rs                # Config + Theme (TOML)
     ├── message.rs               # NetMessage (serde + bincode)
-    ├── state.rs                 # AppState
+    ├── state.rs                 # State (旧称 AppState)
     ├── action.rs                # Action trait (termchat 継承)
     ├── encoder.rs               # bincode encode/decode (termchat 継承)
     ├── terminal_events.rs       # crossterm イベント収集 (termchat 継承)
@@ -107,52 +107,32 @@ triadchat/
 
 ## 5. Cargo.toml 依存関係
 
-```toml
-[package]
-name = "triadchat"
-version = "0.1.0"
-edition = "2021"
+依存関係の真実のソースは `Cargo.toml` を参照すること（バージョンは都度更新されるため、ここに転記しない）。
 
-[dependencies]
-# ネットワーク (termchat 継承)
-message-io       = { version = "0.14", default-features = false, features = ["udp", "tcp"] }
-bincode          = "1.3"
-serde            = { version = "1", features = ["derive"] }
+本節は設計上の注記のみを記載する。
 
-# TUI (termchat 継承。ratatui 移行は v0.3 以降)
-crossterm        = "0.18"
-tui              = { version = "0.14", default-features = false, features = ["crossterm", "serde"] }
-unicode-width    = "0.1"
+### 主要依存と役割
 
-# ユーティリティ (termchat 継承)
-whoami           = "1"
-chrono           = "0.4"
-shellwords       = "1"
-shellexpand      = "2"
-toml             = "0.5"
-dirs-next        = "2"
-rgb              = { version = "0.8", features = ["serde"] }
+| 依存 | 役割 | 備考 |
+|------|------|------|
+| `message-io` | ネットワーク (UDP mcast + TCP) | termchat 継承 |
+| `bincode` | wire シリアライズ | **後述の破壊的変更参照** |
+| `serde` / `serde_json` / `serde_yaml` | 設定・AI 出力のシリアライズ | |
+| `ratatui` + `crossterm` | TUI レンダリング + 端末イベント | **ratatui 0.26 に移行済み**（termchat 由来の `tui 0.14` から） |
+| `tokio` | AI sidecar の非同期実行 | `Runtime::new()` + `Handle::spawn()` で message-io スレッドと分離 |
+| `ed25519-dalek` / `x25519-dalek` / `chacha20poly1305` | peer 認証署名 + トランスポート暗号化 | Phase 1 セキュリティ |
+| `clap` | CLI 引数 | |
+| `libloading` | AvatarPlugin 動的ロード (optional: `avatar-ffi` feature) | |
 
-# CLI
-clap             = { version = "4", features = ["derive"] }
+### bincode 1 → 2 wire 互換性（重要）
 
-# 非同期 (AI sidecar 呼び出し用)
-tokio            = { version = "1", features = ["full"] }
+`bincode` を `1.3` から `2.0.0-rc.3` に移行した。`bincode::config::legacy()` を用いて termchat 互換のワイヤーフォーマットを維持しているが、新しいエントリポイント (`bincode::serde::encode_to_vec` / `decode_from_slice`) を使用する。enum variant は **末尾追加のみ**（削除・並べ替え禁止）を維持することで後方互換を保つ。
 
-# シリアライズ
-serde_json       = "1"
+> **MSRV:** Rust 1.82（`Cargo.toml` の `rust-version` で宣言。`Option::is_none_or` 等 1.82 安定化 API を使用するため 1.75 から引き上げ）。CI での強制は別途 GitHub Issue で対応。
 
-# エラーハンドリング
-anyhow           = "1"
-thiserror        = "1"
+### バージョン
 
-# ログ
-tracing          = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# [Phase 2] アバタープラグイン動的ロード
-# libloading = "0.8"
-```
+`Cargo.toml` の `version` が真実のソース。現在 `0.1.x` 系列。
 
 ---
 
@@ -160,79 +140,113 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 ### 6.1 NetMessage 拡張
 
-Phase 0 では `UserMessage` と `AiMessage` のみ使用。残りは Phase 1 で追加。
+以下は `src/message.rs` の `NetMessage` から転記した実装の真実。variant は追加順（= bincode のディスク順序）に並べること。削除・並べ替えは後方互換性を壊すため禁止。
 
 ```rust
 /// src/message.rs
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NetMessage {
     // --- termchat 継承 (Phase 0) ---
     HelloLan(String, u16),            // user_name, server_port
     HelloUser(String),                // user_name
     UserMessage(String),              // content
     UserData(String, Chunk),          // file_name, chunk
+    AiMessage(AiPayload),             // Phase 0 追加: AI が生成したメッセージ
 
-    // --- Phase 0 追加 ---
-    /// AI が生成したメッセージ
-    AiMessage(AiPayload),
-
-    // --- Phase 1 追加 ---
-    /// ノードのメタ情報交換 (HelloUser 拡張)
-    PeerInfo(PeerInfo),
-    /// ルーム作成・参加招待
-    RoomCreate(RoomId, Vec<MemberId>),
+    // --- Phase 1: ルーム / peer / skill ---
+    PeerInfo(PeerInfo),               // ノードのメタ情報交換
+    RoomCreate(RoomId, Vec<MemberId>),// ルーム作成・参加招待
+    RoomCreateV2 {                    // ai_mode 付きルーム作成
+        room_id: RoomId,
+        members: Vec<MemberId>,
+        ai_mode: Option<AiMode>,
+    },
     RoomJoin(RoomId),
-    /// skill 実行結果
-    SkillResult(SkillResultPayload),
-}
+    SkillResult(SkillResultPayload),  // skill 実行結果
 
-#[derive(Serialize, Deserialize)]
+    // --- Phase 1: トランスポートセキュリティ ---
+    PeerIdentity {                    // ed25519 身元証明 (署名検証の対象)
+        public_key: Vec<u8>,
+        signature: Vec<u8>,
+        timestamp: u64,
+    },
+    KeyExchange {                     // x25519 公開鍵 + ed25519 署名
+        public_key: Vec<u8>,
+        signature: Vec<u8>,
+    },
+    Secure(Vec<u8>),                  // ChaCha20Poly1305 で暗号化された内側 NetMessage
+
+    // --- ファイル転送 (オファー/承認/却下/キャンセル) ---
+    TransferOffer { file_name: String, file_size: u64, sender: String },
+    TransferAccept { file_name: String },
+    TransferReject { file_name: String, reason: String },
+    TransferCancel { file_name: String },
+}
+```
+
+補助型（いずれも `src/message.rs`）:
+
+```rust
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiPayload {
     pub text: String,
     pub intent: AiIntent,
     pub structured: Option<StructuredOutput>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiIntent {
+    #[default]
     Clarify,
     Summary,
     Todo,
     Decision,
     SkillSuggest,
+    Skip,                 // 介入不要時のパーサーフォールバック
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredOutput {
     pub todos: Vec<TodoItem>,
     pub decisions: Vec<String>,
     pub skill_suggestions: Vec<String>,
+    pub raw_text: Option<String>,     // パース失敗時の raw fallback (执行候補抽出からは除外)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoItem {
     pub text: String,
-    pub assignee: Option<String>,  // 担当者を自動抽出
+    pub assignee: Option<String>,
 }
 
-// Phase 1 以降
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub user_name: String,
     pub server_port: u16,
     pub node_version: String,
+    #[serde(default)]
+    pub avatar: String,               // Phase 1: avatar preset 名
 }
 
-pub type RoomId = String;
-pub type MemberId = String;
-
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SkillResultPayload {
     pub skill_name: String,
     pub summary: String,
     pub success: bool,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Chunk {
+    Data(Vec<u8>),
+    Error,
+    End,
+}
+
+pub type RoomId = String;
+pub type MemberId = String;
 ```
+
+> すべての peer 由来 payload には `MAX_*` 長さ上限と `validate()` が定義されている（`src/message.rs` を参照）。`NetMessage::Secure` のみ署名検証済みかつ鍵交換済み endpoint から受理する。
 
 ### 6.2 ピア探索シーケンス (Phase 1)
 
@@ -250,51 +264,60 @@ Node A                         Node B
 
 ---
 
-## 7. AppState
+## 7. State
+
+アプリケーションの中央可変状態は `pub struct State`（`src/state.rs`）。全フィールドの正確な定義は同ファイルを真実のソースとすること。主要なグループのみ以下に示す。
 
 ```rust
-/// src/state.rs
-pub struct AppState {
+/// src/state.rs (抜粋 — 全フィールドは実装を参照)
+pub struct State {
     // --- termchat 継承 ---
     messages: Vec<ChatMessage>,
     scroll_messages_view: usize,
     input: Vec<char>,
     input_cursor: usize,
+    input_history: Vec<String>,        // Up/Down で遡る送信履歴
+    local_user_name: String,
+    lan_users / peers / users_id,      // peer 管理
+    rooms / active_room_id,            // Phase 1: ルーム状態
 
-    // --- Phase 0 追加 ---
-    /// AI の現在状態 (thinking... 表示用)
-    pub ai_state: AiState,
-    pub ai_mode: AiMode,
-    /// 非同期 AI 処理が進行中かどうか
-    pub ai_thinking: bool,
+    // --- Phase 0 AI ---
+    ai_state: AiState,
+    ai_mode: AiMode,
+    ai_thinking: bool,
+    abort_handle: Option<tokio::task::AbortHandle>,  // spawn リーク防止
 
-    // --- Phase 1 追加 ---
-    peers: HashMap<Endpoint, PeerInfo>,
-    users_id: HashMap<String, usize>,
-    rooms: Vec<Room>,
-    active_room_id: Option<RoomId>,
-    pending_skill_proposals: Vec<SkillProposal>,
+    // --- Phase 1 skill / security ---
+    pending_confirmation / skill_proposals,
     transcript: Option<TranscriptWriter>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AiState {
-    Idle,
-    Listening,
-    Thinking,  // [ops-ai: thinking...] 表示
-    Warning,
-    Acting,    // skill 実行中
-    Failed,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AiMode {
-    Listener,
-    Clerk,
-    Moderator,
-    Operator,
+    // active_transfers / pending_transfer_offers (ファイル転送)
 }
 ```
+
+> **命名:** 設計段階の `AppState` は実装では `State` に改名されている。ドキュメント・コードともに `State` を使用すること。
+
+```rust
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AiState {
+    Idle,
+    Thinking,   // [ops-ai: thinking...] 表示
+    Acting,     // skill 実行中
+    Disabled,   // AI 利用不可 (claude コマンド不在等)
+    Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AiMode {
+    Clerk,
+    Listener,
+    Moderator,
+    Operator,
+    Companion,  // 全メッセージに会話的に応答
+}
+```
+
+> `AiState` は `Copy` ではない（`Failed(String)` を持つため）。UI の描画は `&AiState` の参照で行う。
 
 ---
 
@@ -359,7 +382,7 @@ handle.spawn(async move {
 └──────┬──────────────┬─────────────────┬───────────────────┘
        │              │                 │
   ┌────▼────┐   ┌─────▼──────┐   ┌─────▼──────────┐
-  │AppState │   │AiMediator  │   │SkillBridge [P1]│
+  │State    │   │AiMediator  │   │SkillBridge [P1]│
   │         │   │            │   │SkillRegistry   │
   │messages │   │trigger     │   │SidecarAdapter  │
   │ai_state │   │classifier  │   │(共有)          │
@@ -379,7 +402,7 @@ handle.spawn(async move {
 
 インターフェース境界:
   Terminal → App       crossterm::Event (in)
-  App → TUI            &AppState read-only borrow (out)
+  App → TUI            &State read-only borrow (out)
   App → AI             tokio Handle::spawn + signals() (async)
   App → Skill [P1]     tokio Handle::spawn + signals() (async)
   App ↔ Network [P1]   message-io NetMessage/bincode (bidirectional)
@@ -394,10 +417,10 @@ handle.spawn(async move {
 
 | 失敗 | 検出 | 回復 |
 |------|------|------|
-| `claude` コマンドが存在しない | 起動時 `which::which("claude")` | エラーメッセージ表示 + `provider = "disabled"` にフォール |
+| `claude` コマンドが存在しない | 起動時 `which::which("claude")` | エラーメッセージ表示 + `ai.enabled = false` ⇒ `AiState::Disabled`（`AiProvider::Disabled` という variant は存在しない）|
 | sidecar タイムアウト (30s) | `tokio::time::timeout` | `AiState::Failed` 表示、次メッセージで再トリガー可能 |
 | stdout が空 | `trim().is_empty()` チェック | `AiState::Failed` + "no response" メッセージ |
-| spawn 中に `ai_thinking` リーク | `JoinHandle` の `Drop` で `ai_thinking = false` | `AbortHandle` を `AppState` に持たせてガード |
+| spawn 中に `ai_thinking` リーク | `JoinHandle` の `Drop` で `ai_thinking = false` | `AbortHandle` を `State` に持たせてガード |
 | プロンプト生成時に transcript が空 | `if transcript.is_empty() { return false }` | 介入しない (エラーにしない) |
 
 ### Skill 実行 (Phase 1)
@@ -905,122 +928,160 @@ Receiving
 ## 13. コマンド仕様
 `CommandManager::COMMAND_PREFIX` を `"?"` → `"/"` に変更。
 
-### Phase 0 コマンド
+> **正真のリスト:** アプリ内 `/help`（`src/application/mod.rs::help_text()`）がコマンド群の正。以下はフェーズ別の参照用。グループ分けは `/help` に準ずる。
+
+### AI
 
 ```
-/ai mode <listener|clerk|moderator|operator>
+/ai mode <clerk|listener|moderator|operator|companion>
 /ai quiet <on|off>
 /ai freq <low|normal|high>
 /ai provider <claude|codex|gemini|custom>
+```
 
+`/ai provider` は実行中の AI エンジンを動的に切り替える。`SidecarAdapter` が新しいプロバイダーのコマンド (`which` または `ai.command`) を解決できた時点で `state.ai_provider` と `ai_mediator` を置き換える。解決に失敗した場合は以前のプロバイダーと mediator を維持し、エラーメッセージを表示する。
+
+### Summary (Phase 0)
+
+```
 /summary          直近会話の要約
 /todos            TODO 一覧
 /decisions        決定事項一覧
 /context          会話コンテキスト全体
 ```
 
-`/ai provider` は実行中の AI エンジンを動的に切り替える。`SidecarAdapter` が新しいプロバイダーのコマンド (`which` または `ai.command`) を解決できた時点で `state.ai_provider` と `ai_mediator` を置き換える。解決に失敗した場合は以前のプロバイダーと mediator を維持し、エラーメッセージを表示する。
-
-### Phase 1 追加コマンド
+### Rooms (Phase 1)
 
 ```
-/room create @user1 [--ai <mode>]
+/room create @user1 [--ai <mode>]   # RoomCreateV2 で AI モードを同梱
 /room list
-/room switch <room_id>
-/peers
+/room switch <id|name>
+```
 
+### Peers (Phase 1)
+
+```
+/peers
+/peer connect <host:port>           # 直接 peer 接続
+/trust list                         # 信頼済み fingerprint 一覧
+/trust add <peer|fp>                # peer を明示的に信頼
+/trust remove <peer|fp>             # 信頼を取り消し
+```
+
+### Skills (Phase 1)
+
+```
 /skills
 /skill <name> [args]
-/run <proposal_id>
-/cancel <task_id>
-
-/send <file_path>
+/run <proposal_id>                  # AI が提案した skill を番号で実行
+/cancel                             # 実行中の AI タスク/skill を中止 (引数不要)
 ```
 
-### Phase 2 追加コマンド
+### Avatar (Phase 2)
 
 ```
-/avatar set <target> <preset>
+/avatar set <target> <preset>       # target: self, @ops-ai
+/avatar list
 /avatar preview
 /avatar mode <compact|normal|expressive>
-/avatar list
 ```
+
+### Art
+
+```
+/art list                           # art.yaml のショートコード一覧
+/art reload                         # art.yaml を再読み込み
+```
+
+### Files (Phase 1)
+
+```
+/send <file_path>                   # ルーム内 peer にファイル送信
+```
+
+> ファイル受信時は `NetMessage::TransferOffer` → 受信側が `TransferAccept`/`TransferReject` → `UserData` チャンク → `Chunk::End` のフロー。100 MB 上限 (`MAX_TRANSFER_SIZE`)。
 
 ---
 
 ## 14. 設定ファイル
 
-パス: `~/.config/triadchat/config.toml`
+パス: `~/.config/triadchat/config.toml`（初回起動時に `Config::default()` から自動生成）
 
 ```toml
-[network]
-discovery_addr  = "238.255.0.1:5877"
-tcp_server_port = 0
+# --- フラットキー (CLI フラグで上書き可能) ---
+discovery_addr   = "238.255.0.1:5877"   # UDP mcast
+tcp_server_port  = 0                    # 0 = ランダム
+user_name        = "your-name"          # 空 = whoami::username()
+terminal_bell    = true
 
-[ui]
-theme        = "dark"    # dark | light
-avatar_mode  = "normal"  # compact | normal | expressive  [Phase 2]
+[language]
+# AI 出力言語 (プロンプトの言語指示に使用): "ja" | "en" | "zh" | "ko"
+ai_output = "ja"
+# UI システムメッセージ言語 (接続通知・エラー等): "ja" | "en" (zh/ko は "en" にフォールバック)
+ui        = "ja"
 
 [ai]
-default_mode   = "clerk"   # listener | clerk | moderator | operator
-intervention   = "normal"  # low | normal | high
-cooldown_secs  = 30
-human_streak_limit = 3
-provider       = "sidecar" # sidecar | disabled
-
-[claude_code]
-enabled              = true
-workspace            = ""   # 空 = カレントディレクトリ
-allow_auto_safe_skills = true
+enabled     = true
+provider    = "claude"   # claude | codex | gemini | custom
+# command    = "/path/to/claude"   # claude が PATH にない場合のみ上書き
+timeout_secs = 30
 
 [security]
-default_permission = "confirm-required"
+default_permission = "confirm-required"   # confirm-required | trusted-auto-safe | deny-remote-exec
 trusted_peers      = []
 
 [user]
-name   = ""   # 空 = whoami::username()
-avatar = "human_default"  # [Phase 2]
+avatar    = "human_default"   # preset 名
+ai_avatar = "ai_default"
 
-[language]
-# AI の出力言語。プロンプトへの言語指示に使用する。
-# 対応値: "ja" | "en" | "zh" | "ko"  (デフォルト: "ja")
-ai_output = "ja"
-
-# UI のシステムメッセージ言語 (接続通知・エラー・ヘルプテキストなど)
-# 対応値: "ja" | "en"  (デフォルト: "ja")
-ui = "ja"
+# [theme] は初回起動時に自動生成される Color 定義一式。通常は手動編集しない。
 ```
 
+> `[network]` / `[ui]` / `[claude_code]` セクションは存在しない（旧仕様の誤記）。ネットワーク設定はフラットキー、UI 設定は `[theme]`、Claude Code 呼び出しは `[ai]` 配下に統合されている。
+
+実装の真実の構造体（`src/config.rs`）:
+
 ```rust
-/// src/config.rs
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub network:     NetworkConfig,
-    pub ui:          UiConfig,
-    pub ai:          AiConfig,
-    pub claude_code: ClaudeCodeConfig,
-    pub security:    SecurityConfig,
-    pub user:        UserConfig,
-    pub language:    LanguageConfig,
+    pub discovery_addr: SocketAddrV4,
+    pub tcp_server_port: u16,
+    pub user_name: String,
+    pub terminal_bell: bool,
+    pub language: LanguageConfig,
+    pub ai: AiConfig,
+    pub security: SecurityConfig,
+    pub theme: Theme,
+    #[serde(default)]
+    pub user: UserConfig,
 }
 
-#[derive(Serialize, Deserialize)]
+pub struct AiConfig {
+    pub enabled: bool,
+    pub provider: AiProvider,        // Claude | Codex | Gemini | Custom (serde lowercase)
+    pub command: Option<String>,
+    pub timeout_secs: u64,
+}
+
+pub struct SecurityConfig {
+    pub default_permission: String,  // 文字列で保持、default_permission_policy() で enum 化
+    pub trusted_peers: Vec<String>,
+}
+
+pub struct UserConfig {
+    pub avatar: String,
+    pub ai_avatar: String,
+}
+
 pub struct LanguageConfig {
-    /// AI 出力言語コード ("ja" | "en" | "zh" | "ko")
-    pub ai_output: String,
-    /// UI システムメッセージ言語コード ("ja" | "en")
-    pub ui: String,
+    pub ai_output: String,   // "ja" | "en" | "zh" | "ko"
+    pub ui: String,          // "ja" | "en"
 }
 
 impl Default for LanguageConfig {
     fn default() -> Self {
-        // システムロケールから自動判定、不明なら "ja"
-        let locale = std::env::var("LANG").unwrap_or_default();
-        let ui = if locale.starts_with("ja") { "ja" } else { "en" };
-        Self {
-            ai_output: ui.to_string(),
-            ui: ui.to_string(),
-        }
+        // $LANG 環境変数から自動判定 (ja→ja, en/zh/ko/不明→en for ui)
+        Self::from_lang_env_value(std::env::var("LANG").ok().as_deref())
     }
 }
 ```
@@ -1070,7 +1131,7 @@ impl Default for LanguageConfig {
 | AI 非利用時の CPU | termchat と同等 |
 | プラットフォーム | macOS, Linux, WSL |
 | Rust edition | 2021 |
-| MSRV | 1.75 |
+| MSRV | 1.82 |
 | **入力言語** | Unicode 全角対応済み (termchat 継承)。IME 未確定文字は terminal 依存 |
 | **AI 出力言語** | `config.toml [language] ai_output` で設定。対応: ja / en / zh / ko |
 | **UI 言語** | `config.toml [language] ui` で設定。対応: ja / en。未設定時は `$LANG` から自動判定 |
@@ -1163,7 +1224,7 @@ impl Default for LanguageConfig {
 
 ### Step E-F: AiMediator + コマンド実装
 - `AiMode::Clerk` の `should_intervene()` 実装
-- `AbortHandle` を `AppState` に保持し、`ai_thinking` のリークを防ぐ
+- `AbortHandle` を `State` に保持し、`ai_thinking` のリークを防ぐ
 - `/summary` `/todos` `/decisions` → `SidecarAdapter::ask(prompt)` → parse → 表示
 - **検証:** Phase 0 受け入れ基準全項目
 
