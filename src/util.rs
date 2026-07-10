@@ -27,6 +27,9 @@ pub fn send_all(
 // split messages to fit the width of the ui panel
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub fn split_each(input: String, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![input];
+    }
     let mut splitted = Vec::with_capacity(input.width() / width);
     let mut row = String::new();
 
@@ -109,5 +112,20 @@ impl Reportable for String {
 
     fn report_info(self, state: &mut State) {
         state.add_system_info_message(self);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_each;
+
+    #[test]
+    fn split_each_zero_width_does_not_divide_by_zero() {
+        assert_eq!(split_each("hello".to_string(), 0), vec!["hello".to_string()]);
+    }
+
+    #[test]
+    fn split_each_wraps_to_width() {
+        assert_eq!(split_each("abcd".to_string(), 2), vec!["ab".to_string(), "cd".to_string()]);
     }
 }

@@ -29,6 +29,12 @@ pub fn draw(
     language: &LanguageConfig,
     avatar_manager: &AvatarManager,
 ) {
+    // Too small to render a usable layout; skip drawing entirely rather than
+    // panicking on width/height underflow (e.g. tmux pane splits, tiny windows).
+    if chunk.width < 3 || chunk.height < 8 {
+        return;
+    }
+
     // Outer vertical split: [upper(min), input(6)]
     let v_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -196,15 +202,19 @@ fn add_progress_bar<'a>(
     progress: &'a ProgressState,
     theme: &Theme,
 ) -> Vec<Span<'a>> {
+    let width = panel_width.saturating_sub(20) as usize;
+    if width == 0 {
+        return Vec::new();
+    }
+
     let color = theme.progress_bar_color;
-    let width = (panel_width - 20) as usize;
 
     let (title, ui_current, ui_remaining) = match progress {
         ProgressState::Started(_) => ("Pending: ", 0, width),
         ProgressState::Working(total, current) => {
             let percentage = *current as f64 / *total as f64;
             let ui_current = (percentage * width as f64) as usize;
-            let ui_remaining = width - ui_current;
+            let ui_remaining = width.saturating_sub(ui_current);
             ("Sending: ", ui_current, ui_remaining)
         }
         ProgressState::Completed => ("Done! ", width, 0),
@@ -301,6 +311,14 @@ fn parse_content<'a>(content: &'a str, theme: &Theme, local_user_name: &str) -> 
 }
 
 fn draw_input_panel(frame: &mut Frame, state: &State, chunk: Rect, theme: &Theme) {
+    // Below 3 columns there is no room for the bordered inner area; draw only
+    // the border and skip content/cursor placement to avoid width underflow.
+    if chunk.width < 3 {
+        let border = Block::default().borders(Borders::ALL);
+        frame.render_widget(border, chunk);
+        return;
+    }
+
     let inner_width = (chunk.width - 2) as usize;
     let input = state.input().iter().collect::<String>();
     let input = split_each(input, inner_width)
@@ -326,8 +344,39 @@ fn draw_input_panel(frame: &mut Frame, state: &State, chunk: Rect, theme: &Theme
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Theme;
+    use crate::avatar::loader::AvatarManager;
+    use crate::config::{LanguageConfig, Theme};
+    use crate::state::State;
+    use ratatui::backend::TestBackend;
     use ratatui::style::Color;
+    use ratatui::Terminal;
+
+    #[test]
+    fn draw_never_panics_at_any_small_size() {
+        let theme = Theme::default();
+        let language = LanguageConfig::default();
+        let avatar_manager =
+            AvatarManager::new(std::path::PathBuf::from("/tmp/triadchat-test-avatars"));
+
+        for width in 0u16..=40 {
+            for height in 0u16..=40 {
+                let mut state = State::default();
+                // Include an active Progress message, which is rendered before
+                // Paragraph clipping and previously underflowed on tiny widths.
+                let idx = state.add_progress_message("payload.bin", 100);
+                state.progress_message_update(idx, 40);
+
+                let backend = TestBackend::new(width.max(1), height.max(1));
+                let mut terminal = Terminal::new(backend).unwrap();
+                terminal
+                    .draw(|frame| {
+                        let area = Rect::new(0, 0, width, height);
+                        draw(frame, &mut state, area, &theme, &language, &avatar_manager);
+                    })
+                    .unwrap();
+            }
+        }
+    }
 
     #[test]
     fn test_parse_content_no_mentions() {
