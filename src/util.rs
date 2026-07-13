@@ -1,7 +1,3 @@
-// Note: transfer sends now go through `secure::send_secure_to_endpoints`, which
-// returns the same `Vec<(Endpoint, io::Error)>` error shape consumed by the
-// `Reportable` impl and `stringify_sendall_errors` below.
-
 // split messages to fit the width of the ui panel
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub fn split_each(input: String, width: usize) -> Vec<String> {

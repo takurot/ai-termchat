@@ -136,7 +136,7 @@ impl SecureState {
 #[derive(Debug)]
 pub enum EncodeFrameError {
     /// `bincode` failed to serialize the (inner or outer) message.
-    EncodeFailed,
+    EncodeFailed(String),
     /// A session existed at the [`SecureState::has_session`] check but vanished
     /// before it could be used (e.g. raced with [`SecureState::remove`]).
     SessionLost,
@@ -145,7 +145,9 @@ pub enum EncodeFrameError {
 impl std::fmt::Display for EncodeFrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EncodeFrameError::EncodeFailed => write!(f, "bincode encode failed"),
+            EncodeFrameError::EncodeFailed(detail) => {
+                write!(f, "bincode encode failed: {detail}")
+            }
             EncodeFrameError::SessionLost => write!(f, "secure session lost before encrypt"),
         }
     }
@@ -168,26 +170,26 @@ pub fn encode_for_endpoint(
 ) -> Result<Vec<u8>, EncodeFrameError> {
     if !secure_state.has_session(endpoint) {
         return bincode::serde::encode_to_vec(message, bincode::config::legacy())
-            .map_err(|_| EncodeFrameError::EncodeFailed);
+            .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()));
     }
     let serialized = bincode::serde::encode_to_vec(message, bincode::config::legacy())
-        .map_err(|_| EncodeFrameError::EncodeFailed)?;
+        .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()))?;
     let ciphertext = secure_state
         .session_mut(endpoint)
         .ok_or(EncodeFrameError::SessionLost)?
         .encrypt(&serialized);
     bincode::serde::encode_to_vec(NetMessage::Secure(ciphertext), bincode::config::legacy())
-        .map_err(|_| EncodeFrameError::EncodeFailed)
+        .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()))
 }
 
 /// Send `message` to every endpoint in `endpoints`, encrypting per-endpoint when
 /// a secure session exists and falling back to plaintext otherwise.
 ///
-/// Returns the same error shape as [`crate::util::send_all`]
-/// (`Vec<(Endpoint, io::Error)>`) so callers can attribute failures to specific
-/// endpoints (e.g. `SendFile::failed_endpoints` blacklisting). Per-endpoint
-/// encode/encrypt failures are attributed to the offending endpoint rather than
-/// short-circuiting the whole broadcast.
+/// Returns the same error shape (`Vec<(Endpoint, io::Error)>`) consumed by the
+/// `Reportable` impl and `stringify_sendall_errors` in `util.rs`, so callers can
+/// attribute failures to specific endpoints (e.g. `SendFile::failed_endpoints`
+/// blacklisting). Per-endpoint encode/encrypt failures are attributed to the
+/// offending endpoint rather than short-circuiting the whole broadcast.
 pub fn send_secure_to_endpoints(
     network: &NetworkController,
     secure_state: &mut SecureState,
@@ -203,8 +205,12 @@ pub fn send_secure_to_endpoints(
                 continue;
             }
         };
-        if network.send(endpoint, &buf) != SendStatus::Sent {
-            errors.push((endpoint, std::io::Error::other("send failed (resource dropped)")));
+        let status = network.send(endpoint, &buf);
+        if status != SendStatus::Sent {
+            errors.push((
+                endpoint,
+                std::io::Error::other(format!("send failed (status: {status:?})")),
+            ));
         }
     }
     if errors.is_empty() {
@@ -317,7 +323,9 @@ mod tests {
 
     #[test]
     fn encode_frame_error_variants_display_for_io_bridge() {
-        assert!(EncodeFrameError::EncodeFailed.to_string().contains("bincode"));
+        assert!(EncodeFrameError::EncodeFailed("boom".into())
+            .to_string()
+            .contains("bincode encode failed: boom"));
         assert!(EncodeFrameError::SessionLost.to_string().contains("session lost"));
     }
 
