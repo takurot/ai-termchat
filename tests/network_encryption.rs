@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use triadchat::application::Application;
 use triadchat::config::Config;
-use triadchat::message::{NetMessage, PeerInfo, SignaturePayload};
+use triadchat::message::{Chunk, NetMessage, PeerInfo, SignaturePayload};
 use triadchat::state::State;
 
 mod common;
@@ -257,4 +257,94 @@ fn plaintext_rejected_after_secure_session_established() {
         "plaintext message from authenticated peer with secure session must be rejected"
     );
     assert!(after.contains("rejected plaintext"), "should log rejection reason; got:\n{}", after);
+}
+
+#[test]
+fn plaintext_transfer_chunk_rejected_after_secure_session() {
+    let discovery_port = 51000 + (rand::random::<u16>() % 5000);
+    let alice_config = test_config("alice", discovery_port);
+    let bob_config = test_config("bob", discovery_port + 1);
+    let mut alice = Application::new_for_test(&alice_config).unwrap();
+    let mut bob = Application::new_for_test(&bob_config).unwrap();
+
+    alice.start_network_for_test().unwrap();
+    bob.start_network_for_test().unwrap();
+    alice.connect_peer_for_test(bob.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.state().peer_is_ready("bob") && right.state().peer_is_ready("alice")
+    });
+
+    let alice_endpoint = bob.state().peer_endpoint_by_name("alice").unwrap();
+    let bob_endpoint = alice.state().peer_endpoint_by_name("bob").unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.has_secure_session(bob_endpoint) && right.has_secure_session(alice_endpoint)
+    });
+
+    // Bob should NOT accept a plaintext UserData frame from alice now that a
+    // secure session exists (closes the #110 data-plane bypass).
+    bob.inject_network_message_for_test(
+        alice_endpoint,
+        NetMessage::UserData("secret.bin".into(), Chunk::Data(vec![0xAB; 64])),
+    );
+
+    let _ = bob.process_next_event_with_timeout_for_test(Duration::from_millis(100));
+
+    let rendered = rendered_messages(bob.state());
+    assert!(
+        rendered.contains("rejected plaintext file transfer"),
+        "plaintext UserData must be rejected once a secure session exists; got:\n{}",
+        rendered
+    );
+    // No active inbound transfer should have been registered for the rejected chunk.
+    assert!(
+        bob.state().active_transfers_view().is_empty(),
+        "rejected plaintext chunk must not register an active transfer"
+    );
+}
+
+#[test]
+fn plaintext_transfer_offer_rejected_after_secure_session() {
+    let discovery_port = 56000 + (rand::random::<u16>() % 5000);
+    let alice_config = test_config("alice", discovery_port);
+    let bob_config = test_config("bob", discovery_port + 1);
+    let mut alice = Application::new_for_test(&alice_config).unwrap();
+    let mut bob = Application::new_for_test(&bob_config).unwrap();
+
+    alice.start_network_for_test().unwrap();
+    bob.start_network_for_test().unwrap();
+    alice.connect_peer_for_test(bob.local_server_port_for_test().unwrap()).unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.state().peer_is_ready("bob") && right.state().peer_is_ready("alice")
+    });
+
+    let alice_endpoint = bob.state().peer_endpoint_by_name("alice").unwrap();
+    let bob_endpoint = alice.state().peer_endpoint_by_name("bob").unwrap();
+
+    pump_until(&mut alice, &mut bob, Duration::from_secs(5), |left, right| {
+        left.has_secure_session(bob_endpoint) && right.has_secure_session(alice_endpoint)
+    });
+
+    bob.inject_network_message_for_test(
+        alice_endpoint,
+        NetMessage::TransferOffer {
+            file_name: "leak.txt".into(),
+            file_size: 128,
+            sender: "alice".into(),
+        },
+    );
+    let _ = bob.process_next_event_with_timeout_for_test(Duration::from_millis(100));
+
+    let rendered = rendered_messages(bob.state());
+    assert!(
+        rendered.contains("rejected plaintext transfer offer"),
+        "plaintext TransferOffer must be rejected once a secure session exists; got:\n{}",
+        rendered
+    );
+    assert!(
+        bob.state().pending_transfer_offer().is_none(),
+        "plaintext offer must not be stored as pending"
+    );
 }

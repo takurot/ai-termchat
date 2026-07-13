@@ -368,3 +368,61 @@ fn oversized_transfer_rejected() {
         "oversized offer should not be stored as pending"
     );
 }
+
+// ── #110: file transfer data plane over the secure session ───────────
+
+#[test]
+fn encrypted_file_transfer_completes_after_secure_session() {
+    // Isolated downloads dir so this test cannot collide with the `send_file`
+    // test's `remove_dir_all(triadchat_dir)` cleanup.
+    let downloads_root = tempfile::TempDir::new().unwrap();
+    let downloads_base = downloads_root.path().to_path_buf();
+
+    // 96 KiB source file = 3 data chunks (32 KiB CHUNK_SIZE) + 1 Chunk::End.
+    let src_dir = tempfile::TempDir::new().unwrap();
+    let src_path = src_dir.path().join("encrypted_96k.bin");
+    let data: Vec<u8> = (0..(96 * 1024)).map(|i| (i & 0xFF) as u8).collect();
+    std::fs::write(&src_path, &data).unwrap();
+
+    let discovery_port = 60000 + (rand::random::<u16>() % 5000);
+    let config_sender = test_config("alice", discovery_port);
+    let config_receiver = test_config("bob", discovery_port + 1);
+    let mut sender = Application::new_for_test(&config_sender).unwrap();
+    let mut receiver = Application::new_for_test(&config_receiver).unwrap();
+    receiver.set_downloads_base_dir_for_test(downloads_base.clone());
+
+    sender.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    receiver.start_network_for_test().unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    sender.connect_peer_for_test(receiver.local_server_port_for_test().unwrap()).unwrap();
+
+    // Wait for both peers to be authenticated and a secure session to exist in
+    // both directions before initiating the transfer.
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(5), |left, right| {
+        left.state().peer_is_ready("bob") && right.state().peer_is_ready("alice")
+    });
+    let receiver_endpoint = sender.state().peer_endpoint_by_name("bob").unwrap();
+    let sender_endpoint = receiver.state().peer_endpoint_by_name("alice").unwrap();
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(5), |left, right| {
+        left.has_secure_session(receiver_endpoint) && right.has_secure_session(sender_endpoint)
+    });
+    assert!(sender.has_secure_session(receiver_endpoint), "session must be established pre-send");
+
+    sender.handle_input_line_for_test(&format!("/send {}", src_path.display())).unwrap();
+
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(5), |_, right| {
+        right.state().pending_transfer_offer().is_some()
+    });
+
+    receiver.handle_input_line_for_test("/accept encrypted_96k.bin").unwrap();
+
+    let received_path =
+        downloads_base.join("triadchat/downloads").join("alice").join("encrypted_96k.bin");
+    pump_until(&mut sender, &mut receiver, Duration::from_secs(10), |_, _| {
+        std::fs::metadata(&received_path).map(|m| m.len() == data.len() as u64).unwrap_or(false)
+    });
+
+    let received = std::fs::read(&received_path).unwrap();
+    assert_eq!(received, data, "decrypted transfer must reproduce the source bytes exactly");
+}
