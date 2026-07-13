@@ -1,3 +1,4 @@
+use crate::secure::SecureState;
 use crate::state::State;
 
 use message_io::network::NetworkController;
@@ -10,5 +11,10 @@ pub enum Processing {
 }
 
 pub trait Action: Send {
-    fn process(&mut self, state: &mut State, network: &NetworkController) -> Processing;
+    fn process(
+        &mut self,
+        state: &mut State,
+        network: &NetworkController,
+        secure: &mut SecureState,
+    ) -> Processing;
 }

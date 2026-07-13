@@ -1,7 +1,7 @@
 use crate::action::{Action, Processing};
 use crate::commands::{Command, ParsedCommand};
-use crate::encoder::Encoder;
 use crate::message::{Chunk, NetMessage};
+use crate::secure::{send_secure_to_endpoints, SecureState};
 use crate::state::State;
 use crate::util::{Reportable, Result};
 
@@ -34,7 +34,6 @@ pub struct SendFile {
     file_name: String,
     file_size: u64,
     progress_id: Option<usize>,
-    encoder: Encoder,
     failed_endpoints: HashSet<Endpoint>,
     offered: bool,
     accepted: bool,
@@ -61,7 +60,6 @@ impl SendFile {
             file_name,
             file_size,
             progress_id: None,
-            encoder: Encoder::new(),
             failed_endpoints: HashSet::new(),
             offered: false,
             accepted: false,
@@ -70,7 +68,12 @@ impl SendFile {
 }
 
 impl Action for SendFile {
-    fn process(&mut self, state: &mut State, network: &NetworkController) -> Processing {
+    fn process(
+        &mut self,
+        state: &mut State,
+        network: &NetworkController,
+        secure: &mut SecureState,
+    ) -> Processing {
         if self.progress_id.is_none() {
             let id = state.add_progress_message(&self.file_name, self.file_size);
             self.progress_id = Some(id);
@@ -84,13 +87,12 @@ impl Action for SendFile {
                 file_size: self.file_size,
                 sender: user_name,
             };
-            let message = self.encoder.encode(offer);
             let endpoints: Vec<Endpoint> = state
                 .all_user_endpoints()
                 .into_iter()
                 .filter(|e| !self.failed_endpoints.contains(e))
                 .collect();
-            let result = crate::util::send_all(network, &endpoints, message);
+            let result = send_secure_to_endpoints(network, secure, &endpoints, &offer);
             if result.is_err() {
                 result.report_if_err(state);
                 return Processing::Completed;
@@ -125,7 +127,6 @@ impl Action for SendFile {
         }
 
         let net_message = NetMessage::UserData(self.file_name.clone(), chunk);
-        let message = self.encoder.encode(net_message);
 
         let endpoints = state
             .all_user_endpoints()
@@ -133,7 +134,7 @@ impl Action for SendFile {
             .filter(|e| !self.failed_endpoints.contains(e))
             .collect::<Vec<_>>();
 
-        let result = crate::util::send_all(network, &endpoints, message);
+        let result = send_secure_to_endpoints(network, secure, &endpoints, &net_message);
         if let Err(ref errors) = result {
             for (endpoint, _) in errors {
                 self.failed_endpoints.insert(*endpoint);

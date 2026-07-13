@@ -3,9 +3,11 @@ use std::collections::{HashMap, HashSet};
 use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::{Aead, OsRng};
 use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
-use message_io::network::Endpoint;
+use message_io::network::{Endpoint, NetworkController, SendStatus};
 use sha2::{Digest, Sha256};
 use x25519_dalek::{EphemeralSecret, PublicKey};
+
+use crate::message::NetMessage;
 
 pub struct PeerSecureSession {
     pub send_cipher: ChaCha20Poly1305,
@@ -130,9 +132,202 @@ impl SecureState {
     }
 }
 
+/// Failure modes for [`encode_for_endpoint`].
+#[derive(Debug)]
+pub enum EncodeFrameError {
+    /// `bincode` failed to serialize the (inner or outer) message.
+    EncodeFailed(String),
+    /// A session existed at the [`SecureState::has_session`] check but vanished
+    /// before it could be used (e.g. raced with [`SecureState::remove`]).
+    SessionLost,
+}
+
+impl std::fmt::Display for EncodeFrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EncodeFrameError::EncodeFailed(detail) => {
+                write!(f, "bincode encode failed: {detail}")
+            }
+            EncodeFrameError::SessionLost => write!(f, "secure session lost before encrypt"),
+        }
+    }
+}
+
+impl std::error::Error for EncodeFrameError {}
+
+/// Encode `message` addressed to `endpoint` into wire bytes.
+///
+/// When a secure session exists for `endpoint`, the message is serialized,
+/// encrypted with ChaCha20Poly1305, and wrapped in [`NetMessage::Secure`].
+/// Otherwise it is serialized in plaintext (backward compatibility with peers
+/// that have not completed a key exchange). Mirrors the encoding steps of
+/// `Application::send_secure_to_peer` so the data plane and control plane share
+/// one canonical encrypt-or-plaintext decision.
+pub fn encode_for_endpoint(
+    secure_state: &mut SecureState,
+    endpoint: Endpoint,
+    message: &NetMessage,
+) -> Result<Vec<u8>, EncodeFrameError> {
+    if !secure_state.has_session(endpoint) {
+        return bincode::serde::encode_to_vec(message, bincode::config::legacy())
+            .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()));
+    }
+    let serialized = bincode::serde::encode_to_vec(message, bincode::config::legacy())
+        .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()))?;
+    let ciphertext = secure_state
+        .session_mut(endpoint)
+        .ok_or(EncodeFrameError::SessionLost)?
+        .encrypt(&serialized);
+    bincode::serde::encode_to_vec(NetMessage::Secure(ciphertext), bincode::config::legacy())
+        .map_err(|e| EncodeFrameError::EncodeFailed(e.to_string()))
+}
+
+/// Send `message` to every endpoint in `endpoints`, encrypting per-endpoint when
+/// a secure session exists and falling back to plaintext otherwise.
+///
+/// Returns the same error shape (`Vec<(Endpoint, io::Error)>`) consumed by the
+/// `Reportable` impl and `stringify_sendall_errors` in `util.rs`, so callers can
+/// attribute failures to specific endpoints (e.g. `SendFile::failed_endpoints`
+/// blacklisting). Per-endpoint encode/encrypt failures are attributed to the
+/// offending endpoint rather than short-circuiting the whole broadcast.
+pub fn send_secure_to_endpoints(
+    network: &NetworkController,
+    secure_state: &mut SecureState,
+    endpoints: &[Endpoint],
+    message: &NetMessage,
+) -> Result<(), Vec<(Endpoint, std::io::Error)>> {
+    let mut errors = Vec::new();
+    for &endpoint in endpoints {
+        let buf = match encode_for_endpoint(secure_state, endpoint, message) {
+            Ok(buf) => buf,
+            Err(err) => {
+                errors.push((endpoint, std::io::Error::other(err.to_string())));
+                continue;
+            }
+        };
+        let status = network.send(endpoint, &buf);
+        if status != SendStatus::Sent {
+            errors.push((
+                endpoint,
+                std::io::Error::other(format!("send failed (status: {status:?})")),
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::Chunk;
+
+    fn fixture_endpoint(port: u16) -> Endpoint {
+        // ResourceId encodes a transport tag in its bits; 130 maps to a valid
+        // transport (same trick used by Application::inject_authenticated_peer_for_test).
+        // Distinct ports yield distinct Endpoint values for the same resource.
+        let id = message_io::network::ResourceId::from(130);
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        Endpoint::from_listener(id, addr)
+    }
+
+    fn secure_state_with_session(endpoint: Endpoint) -> SecureState {
+        let pending_a = generate_key_exchange();
+        let pending_b = generate_key_exchange();
+        let a_public = pending_a.public.to_bytes();
+        let b_public = pending_b.public.to_bytes();
+        let session = complete_key_exchange_as_initiator(pending_a.secret, &b_public).unwrap();
+        // Keep the responder side referenced so the initiator session is valid.
+        let _responder = complete_key_exchange_as_responder(pending_b.secret, &a_public).unwrap();
+        let mut state = SecureState::default();
+        state.sessions.insert(endpoint, session);
+        state
+    }
+
+    #[test]
+    fn encode_for_endpoint_encrypts_userdata_when_session_exists() {
+        let endpoint = fixture_endpoint(0);
+        let mut secure_state = secure_state_with_session(endpoint);
+        let msg = NetMessage::UserData("secret.bin".into(), Chunk::Data(vec![1, 2, 3, 4, 5]));
+
+        let encoded = encode_for_endpoint(&mut secure_state, endpoint, &msg).expect("encode ok");
+
+        let decoded = crate::encoder::decode(&encoded).expect("must decode as NetMessage");
+        match decoded {
+            NetMessage::Secure(_) => { /* expected: wrapped in Secure envelope */ }
+            other => panic!("expected NetMessage::Secure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_for_endpoint_emits_plaintext_when_no_session() {
+        let endpoint_with = fixture_endpoint(0);
+        let endpoint_without = fixture_endpoint(1);
+        let mut secure_state = secure_state_with_session(endpoint_with);
+        let msg = NetMessage::UserData("plain.bin".into(), Chunk::Data(vec![9, 9, 9]));
+
+        let encoded =
+            encode_for_endpoint(&mut secure_state, endpoint_without, &msg).expect("encode ok");
+
+        let decoded = crate::encoder::decode(&encoded).expect("must decode as NetMessage");
+        match decoded {
+            NetMessage::UserData(name, Chunk::Data(bytes)) => {
+                assert_eq!(name, "plain.bin");
+                assert_eq!(bytes, vec![9, 9, 9]);
+            }
+            other => panic!("expected plaintext NetMessage::UserData, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_for_endpoint_secure_output_differs_from_plaintext() {
+        let endpoint_with = fixture_endpoint(0);
+        let endpoint_without = fixture_endpoint(1);
+        let mut secure_state = secure_state_with_session(endpoint_with);
+        let msg = NetMessage::UserData("x".into(), Chunk::Data(vec![42; 32]));
+
+        let encrypted = encode_for_endpoint(&mut secure_state, endpoint_with, &msg).unwrap();
+        let plaintext = encode_for_endpoint(&mut secure_state, endpoint_without, &msg).unwrap();
+
+        assert_ne!(
+            encrypted, plaintext,
+            "encrypted frame must not equal the plaintext serialization"
+        );
+        // The plaintext frame must not accidentally leak the raw chunk bytes via
+        // a Secure-shaped envelope: it must decode to UserData, not Secure.
+        match crate::encoder::decode(&plaintext).unwrap() {
+            NetMessage::UserData(_, _) => {}
+            other => panic!("plaintext path produced {other:?}, expected UserData"),
+        }
+    }
+
+    #[test]
+    fn encode_for_endpoint_encrypts_transfer_offer_when_session_exists() {
+        let endpoint = fixture_endpoint(0);
+        let mut secure_state = secure_state_with_session(endpoint);
+        let msg = NetMessage::TransferOffer {
+            file_name: "report.pdf".into(),
+            file_size: 4096,
+            sender: "alice".into(),
+        };
+
+        let encoded = encode_for_endpoint(&mut secure_state, endpoint, &msg).expect("encode ok");
+        match crate::encoder::decode(&encoded).expect("must decode") {
+            NetMessage::Secure(_) => {}
+            other => panic!("expected NetMessage::Secure for TransferOffer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_frame_error_variants_display_for_io_bridge() {
+        assert!(EncodeFrameError::EncodeFailed("boom".into())
+            .to_string()
+            .contains("bincode encode failed: boom"));
+        assert!(EncodeFrameError::SessionLost.to_string().contains("session lost"));
+    }
 
     #[test]
     fn encrypt_decrypt_round_trip() {

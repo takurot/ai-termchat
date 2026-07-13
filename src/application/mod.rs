@@ -37,7 +37,7 @@ use crate::message::{
 use crate::room::transcript::TranscriptEntry;
 use crate::room::{MemberKind, Room};
 use crate::renderer::Renderer;
-use crate::secure::SecureState;
+use crate::secure::{encode_for_endpoint, SecureState};
 use crate::state::{
     AiFrequency, AiMode, AiState, ChatMessage, CursorMovement, MessageType, PeerReadiness,
     PendingTransferOffer, ScrollMovement, State,
@@ -373,11 +373,7 @@ impl<'a> Application<'a> {
             }
             NetMessage::UserData(file_name, chunk) => {
                 if let Some(user) = self.state.user_name(endpoint).cloned() {
-                    if !self.accepts_authenticated_peer_message_inner(
-                        endpoint,
-                        "file transfer",
-                        false,
-                    ) {
+                    if !self.accepts_authenticated_peer_message(endpoint, "file transfer") {
                         return;
                     }
                     self.process_user_data(&user, &file_name, chunk);
@@ -757,36 +753,13 @@ impl<'a> Application<'a> {
     }
 
     fn send_secure_to_peer(&mut self, endpoint: Endpoint, message: NetMessage) {
-        if self.secure_state.has_session(endpoint) {
-            let serialized =
-                match bincode::serde::encode_to_vec(&message, bincode::config::legacy()) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        self.state
-                            .add_system_error_message(format!("bincode encode failed: {}", e));
-                        return;
-                    }
-                };
-            let encrypted = {
-                if let Some(session) = self.secure_state.session_mut(endpoint) {
-                    session.encrypt(&serialized)
-                } else {
-                    self.state.add_system_error_message("session lost unexpectedly".to_string());
-                    return;
-                }
-            };
-            let mut buf = Vec::new();
-            if let Err(e) = bincode::serde::encode_into_std_write(
-                NetMessage::Secure(encrypted),
-                &mut buf,
-                bincode::config::legacy(),
-            ) {
-                self.state.add_system_error_message(format!("bincode encode failed: {}", e));
-                return;
+        match encode_for_endpoint(&mut self.secure_state, endpoint, &message) {
+            Ok(buf) => {
+                self.node.network().send(endpoint, &buf);
             }
-            self.node.network().send(endpoint, &buf);
-        } else {
-            self.node.network().send(endpoint, self.encoder.encode(message));
+            Err(err) => {
+                self.state.add_system_error_message(err.to_string());
+            }
         }
     }
 
@@ -1476,7 +1449,7 @@ impl<'a> Application<'a> {
     }
 
     fn process_action(&mut self, mut action: Box<dyn Action>) {
-        match action.process(&mut self.state, self.node.network()) {
+        match action.process(&mut self.state, self.node.network(), &mut self.secure_state) {
             Processing::Completed => {}
             Processing::Partial(delay) => {
                 self.node.signals().send_with_timer(Signal::Action(action), delay);
@@ -1563,6 +1536,10 @@ impl<'a> Application<'a> {
 
     pub fn authenticate_endpoint_for_test(&mut self, endpoint: Endpoint, fingerprint: &str) {
         self.state.add_verified_peer_fingerprint(endpoint, fingerprint.to_string());
+    }
+
+    pub fn set_downloads_base_dir_for_test(&mut self, dir: std::path::PathBuf) {
+        self.state.set_downloads_base_dir(Some(dir));
     }
 
     fn process_transfer_offer(
