@@ -346,8 +346,8 @@ impl<'a> Application<'a> {
                         let (user_endpoint, _) =
                             self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
                         let message = NetMessage::HelloUser(self.config.user_name.clone());
-                        self.node.network().send(user_endpoint, self.encoder.encode(message));
-                        self.send_peer_info(user_endpoint);
+                        self.node.network().send(user_endpoint, self.encoder.encode(message)?);
+                        self.send_peer_info(user_endpoint)?;
                         self.state.connected_user(user_endpoint, &user);
                         Ok(())
                     };
@@ -358,7 +358,7 @@ impl<'a> Application<'a> {
                 let already_ready = self.state.peer_is_ready(&user);
                 self.state.connected_user(endpoint, &user);
                 if !already_ready {
-                    self.send_peer_info(endpoint);
+                    self.send_peer_info(endpoint).report_if_err(&mut self.state);
                 }
                 self.ring_the_bell();
             }
@@ -640,8 +640,13 @@ impl<'a> Application<'a> {
         let public_bytes = exchange.public.to_bytes().to_vec();
         let signature = self.signing_key.sign(&public_bytes).to_bytes().to_vec();
         let msg = NetMessage::KeyExchange { public_key: public_bytes, signature };
-        self.secure_state.pending_key_exchanges.insert(endpoint, exchange);
-        self.node.network().send(endpoint, self.encoder.encode(msg));
+        match self.encoder.encode(msg) {
+            Ok(bytes) => {
+                self.node.network().send(endpoint, bytes);
+                self.secure_state.pending_key_exchanges.insert(endpoint, exchange);
+            }
+            Err(error) => self.state.add_system_error_message(error.to_string()),
+        }
     }
 
     fn process_key_exchange(
@@ -710,7 +715,12 @@ impl<'a> Application<'a> {
                     public_key: our_public_bytes,
                     signature: our_signature,
                 };
-                self.node.network().send(endpoint, self.encoder.encode(msg));
+                match self.encoder.encode(msg) {
+                    Ok(bytes) => {
+                        self.node.network().send(endpoint, bytes);
+                    }
+                    Err(error) => self.state.add_system_error_message(error.to_string()),
+                }
             }
         }
     }
@@ -1808,9 +1818,9 @@ impl<'a> Application<'a> {
         }
     }
 
-    fn send_peer_info(&self, endpoint: Endpoint) {
+    fn send_peer_info(&self, endpoint: Endpoint) -> Result<()> {
         let Some(server_port) = self.local_server_port else {
-            return;
+            return Ok(());
         };
 
         let peer = PeerInfo {
@@ -1820,7 +1830,7 @@ impl<'a> Application<'a> {
             avatar: self.state.user_avatar.clone(),
         };
         let mut encoder = Encoder::new();
-        self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer)));
+        self.node.network().send(endpoint, encoder.encode(NetMessage::PeerInfo(peer))?);
 
         let timestamp = chrono::Utc::now().timestamp() as u64;
         let payload = SignaturePayload {
@@ -1834,8 +1844,9 @@ impl<'a> Application<'a> {
             let signature = self.signing_key.sign(&serialized).to_bytes().to_vec();
             let public_key = self.signing_key.verifying_key().to_bytes().to_vec();
             let identity_msg = NetMessage::PeerIdentity { public_key, signature, timestamp };
-            self.node.network().send(endpoint, encoder.encode(identity_msg));
+            self.node.network().send(endpoint, encoder.encode(identity_msg)?);
         }
+        Ok(())
     }
 
     fn peer_supports_room_create_v2(&self, endpoint: Endpoint) -> bool {
@@ -1853,7 +1864,7 @@ impl<'a> Application<'a> {
         let (discovery_endpoint, _) =
             self.node.network().connect_sync(Transport::Udp, self.config.discovery_addr)?;
         let message = NetMessage::HelloLan(self.config.user_name.clone(), server_port);
-        self.node.network().send(discovery_endpoint, self.encoder.encode(message));
+        self.node.network().send(discovery_endpoint, self.encoder.encode(message)?);
         Ok(())
     }
 
@@ -1872,7 +1883,7 @@ impl<'a> Application<'a> {
             return;
         }
         self.discovery_retries_remaining = self.discovery_retries_remaining.saturating_sub(1);
-        let _ = self.announce_presence();
+        self.announce_presence().report_if_err(&mut self.state);
         if self.discovery_retries_remaining > 0 {
             self.schedule_discovery_retry();
         }
@@ -1882,9 +1893,9 @@ impl<'a> Application<'a> {
         let (endpoint, _) = self.node.network().connect_sync(Transport::FramedTcp, server_addr)?;
         self.node.network().send(
             endpoint,
-            self.encoder.encode(NetMessage::HelloUser(self.config.user_name.clone())),
+            self.encoder.encode(NetMessage::HelloUser(self.config.user_name.clone()))?,
         );
-        self.send_peer_info(endpoint);
+        self.send_peer_info(endpoint)?;
         self.state.add_system_info_message(format!("connecting to peer at {}", server_addr));
         Ok(())
     }

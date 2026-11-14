@@ -753,3 +753,13 @@ src/config.rs               user.avatar 設定の反映
 - PR-07 は PR-02 完了後に PR-03 と並列着手可能
 - PR-11 と PR-12 は PR-10 完了後に並列着手可能
 - PR-13 は PR-06 完了後に PR-07 と並列着手可能
+
+## Issue #116: discovery/handshake encode のエラー処理
+
+- [x] `Encoder::encode` を `Result<&[u8]>` に変更し、シリアライズ失敗を伝播
+- [x] シリアライズ後の frame が 1 MiB を超える場合は送信前に拒否
+- [x] 全呼び出し元でエラーを伝播または表示し、discovery retry でも黙殺しない
+- [x] serializer 失敗、部分出力後の再利用、サイズ境界、既存 wire bytes、Application のエラー後継続を回帰テスト
+
+サイズ検査はシリアライズ後に行うため、一時的なメモリ確保量は制限しない。
+別経路の `secure::encode_for_endpoint` はこの変更の対象外。

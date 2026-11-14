@@ -12,11 +12,16 @@ impl Encoder {
         Self { output_buffer: Vec::new() }
     }
 
-    pub fn encode<M: Serialize>(&mut self, message: M) -> &[u8] {
+    pub fn encode<M: Serialize>(&mut self, message: M) -> anyhow::Result<&[u8]> {
         self.output_buffer.clear();
         let config = bincode::config::legacy();
-        bincode::serde::encode_into_std_write(&message, &mut self.output_buffer, config).unwrap();
-        &self.output_buffer
+        bincode::serde::encode_into_std_write(&message, &mut self.output_buffer, config)?;
+        anyhow::ensure!(
+            self.output_buffer.len() <= MAX_FRAME_SIZE,
+            "outbound frame exceeds {} byte limit",
+            MAX_FRAME_SIZE
+        );
+        Ok(&self.output_buffer)
     }
 }
 
@@ -38,6 +43,62 @@ pub fn decode(data_message: &[u8]) -> Option<NetMessage> {
 mod tests {
     use super::*;
     use crate::message::{AiPayload, Chunk, NetMessage, TodoItem, StructuredOutput};
+
+    struct FailingMessage;
+
+    impl Serialize for FailingMessage {
+        fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("intentional serialization failure"))
+        }
+    }
+
+    #[test]
+    fn serialization_failure_does_not_panic() {
+        let outcome = std::panic::catch_unwind(|| {
+            let mut encoder = Encoder::new();
+            encoder.encode(FailingMessage).is_err()
+        });
+        assert!(outcome.is_ok(), "encoding failure must not panic");
+        assert!(outcome.unwrap(), "encoding failure must return an error");
+    }
+
+    struct PartiallyFailingMessage(usize);
+
+    impl Serialize for PartiallyFailingMessage {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeTuple;
+            let mut tuple = serializer.serialize_tuple(self.0 + 1)?;
+            for _ in 0..self.0 {
+                tuple.serialize_element(&42u8)?;
+            }
+            Err(serde::ser::Error::custom("failure after partial output"))
+        }
+    }
+
+    #[test]
+    fn adversarial_serializers_allow_clean_buffer_reuse() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(116);
+        let mut encoder = Encoder::new();
+        let message = NetMessage::HelloUser("user".into());
+        let expected = test_serialize(&message);
+        for _ in 0..128 {
+            let prefix_len = rng.gen_range(1..1024);
+            assert!(encoder.encode(PartiallyFailingMessage(prefix_len)).is_err());
+            assert_eq!(encoder.encode(&message).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn encoding_enforces_serialized_frame_size_boundary() {
+        let mut encoder = Encoder::new();
+        let boundary = vec![0u8; MAX_FRAME_SIZE - std::mem::size_of::<u64>()];
+        assert_eq!(encoder.encode(boundary).unwrap().len(), MAX_FRAME_SIZE);
+        let oversized = vec![0u8; MAX_FRAME_SIZE - std::mem::size_of::<u64>() + 1];
+        assert!(encoder.encode(oversized).is_err());
+        let message = NetMessage::HelloUser("user".into());
+        assert_eq!(encoder.encode(&message).unwrap(), test_serialize(&message));
+    }
 
     fn test_serialize<M: Serialize>(msg: &M) -> Vec<u8> {
         let config = bincode::config::legacy();
