@@ -39,6 +39,23 @@ mod tests {
     use super::*;
     use crate::message::{AiPayload, Chunk, NetMessage, TodoItem, StructuredOutput};
 
+    struct FailingMessage;
+
+    impl Serialize for FailingMessage {
+        fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("intentional serialization failure"))
+        }
+    }
+
+    #[test]
+    fn serialization_failure_does_not_panic() {
+        let outcome = std::panic::catch_unwind(|| {
+            let mut encoder = Encoder::new();
+            let _ = encoder.encode(FailingMessage);
+        });
+        assert!(outcome.is_ok(), "encoding failure must not panic");
+    }
+
     fn test_serialize<M: Serialize>(msg: &M) -> Vec<u8> {
         let config = bincode::config::legacy();
         bincode::serde::encode_to_vec(msg, config).unwrap()
