@@ -437,6 +437,7 @@ handle.spawn(async move {
 | 失敗 | 検出 | 回復 |
 |------|------|------|
 | bincode デシリアライズ失敗 | `encoder::decode` が `None` | 当該メッセージを無視、warn ログ |
+| discovery/handshake のシリアライズ失敗、または encoded frame が 1 MiB 超 | `Encoder::encode` が `Err` | 当該 frame を送信せず、起動処理ではエラーを返し、イベント処理では system error を表示 |
 | 旧バージョンの `HelloUser` 受信 | variant マッチ | `PeerInfo` なしで peer 登録 (後方互換) |
 | Transcript write 失敗 | `writeln!` Err | warn ログのみ (チャットを止めない) |
 

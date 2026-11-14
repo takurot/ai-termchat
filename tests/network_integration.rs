@@ -88,6 +88,26 @@ fn peer_handshake_and_room_create_propagates() {
 }
 
 #[test]
+fn oversized_handshake_reports_error_and_keeps_processing() {
+    let discovery_port = 44000 + (rand::random::<u16>() % 1000);
+    let mut config = test_config("takuro", discovery_port);
+    config.user.avatar = "a".repeat(1024 * 1024);
+    let mut app = Application::new_for_test(&config).unwrap();
+    app.start_network_for_test().unwrap();
+    let endpoint = message_io::network::Endpoint::from_listener(
+        message_io::network::ResourceId::from(130),
+        "127.0.0.1:1".parse().unwrap(),
+    );
+
+    app.inject_network_message_for_test(endpoint, NetMessage::HelloUser("tanaka".into()));
+
+    let rendered = rendered_messages(&app);
+    assert!(rendered.contains("outbound frame exceeds"), "{rendered}");
+    app.handle_input_line_for_test("/peers").unwrap();
+    assert!(rendered_messages(&app).contains("Connected peers (1):"));
+}
+
+#[test]
 fn room_and_peer_commands_show_richer_metadata() {
     let discovery_port = 33000 + (rand::random::<u16>() % 3000);
     let takuro_config = test_config("takuro", discovery_port);
